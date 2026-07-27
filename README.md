@@ -1,56 +1,120 @@
-# Welcome to your Expo app 👋
+# ShiftMatch — Tinder for local shift work
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Swipe-based marketplace that matches local workers with open shifts. Workers
+build a profile and résumé and swipe through nearby shifts; businesses post
+shifts and swipe through interested workers. When **both sides like**, it's a
+match and a chat opens.
 
-## Get started
+Built with **Expo (React Native)** + **Supabase**. It runs out of the box in a
+**local demo mode** (no setup, seeded data), and flips to a real cloud backend
+the moment you add Supabase credentials.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## Quick start
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+> Node ≥ 22.13 is required (this repo was set up with Node 22.20).
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Then run it one of these ways:
 
-### Other setup steps
+- **On your phone (recommended):** install **Expo Go** (App Store / Play Store)
+  and scan the QR code printed in the terminal. This is the real native app.
+- **In a browser:** press `w`, or run `npm run web`.
+- **iOS Simulator / Android Emulator:** press `i` / `a` (requires Xcode /
+  Android Studio).
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+The app starts in **demo mode** — sign up with any email and password (the data
+lives locally on the device), pick a role, and start swiping. The demo seeds a
+handful of Oakland-area businesses, shifts, and workers so both roles have
+something to swipe immediately.
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
+## Going live with Supabase (real backend)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Demo mode keeps everything on-device. To use a real shared backend with auth,
+Postgres, résumé storage, and realtime chat:
 
-## Join the community
+1. **Create a project** at [supabase.com](https://supabase.com) (free tier is
+   fine).
+2. **Create the schema.** Open the project's **SQL Editor**, paste the entire
+   contents of [`db/schema.sql`](db/schema.sql), and run it. This creates all
+   tables, row-level-security policies, the résumé storage bucket, and the
+   match-making trigger.
+3. **Add your credentials.** Copy `.env.example` to `.env` and fill in the two
+   values from **Settings → API**:
 
-Join our community of developers creating universal apps.
+   ```
+   EXPO_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=YOUR-ANON-KEY
+   ```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+4. **Restart** the dev server (`npx expo start -c`). The Profile tab footer will
+   now read "Connected to Supabase" instead of "Demo mode".
+
+In live mode a match is only created once **both** sides have actually swiped
+right — the `on_swipe` trigger in `db/schema.sql` enforces this server-side.
+(In demo mode, a worker's right-swipe matches immediately so the flow is easy to
+explore solo.)
+
+> Email confirmation: Supabase projects confirm emails by default. For quick
+> testing, turn it off under **Authentication → Providers → Email** so new
+> sign-ups can log in right away.
+
+---
+
+## How matching works
+
+- **Workers** swipe through open shifts (Discover tab). Right-swipe = "I want
+  this shift."
+- **Businesses** swipe through the workers who liked their shifts (Applicants
+  tab). Right-swipe = "I want this worker."
+- A **match** is created when both have right-swiped the same (shift, worker)
+  pair, and a 1:1 **chat** opens for them to sort out the details.
+
+## Project structure
+
+```
+src/
+  app/                      # expo-router routes
+    _layout.tsx             # providers + auth gate (auth → onboarding → app)
+    (auth)/                 # welcome, sign-in, sign-up
+    onboarding/             # role picker + worker/business profile setup
+    (tabs)/                 # index (deck), shifts, matches, profile
+    match/[id].tsx          # realtime chat
+    shift/new.tsx           # post a shift (business)
+  components/               # UI primitives, SwipeDeck, cards, MatchModal
+  features/                 # WorkerProfileForm, BusinessProfileForm
+  lib/
+    backend.ts              # Backend interface the whole app talks to
+    mockBackend.ts          # in-memory demo backend (AsyncStorage)
+    supabaseBackend.ts      # live Supabase backend
+    getBackend.ts           # picks live vs demo based on env
+    session.tsx             # session/account React context
+    types.ts, seed.ts, ...
+db/schema.sql               # Supabase schema + RLS + match trigger
+```
+
+The app only ever talks to the `Backend` interface, so the demo and live
+implementations are fully interchangeable.
+
+## Tech stack
+
+- Expo SDK 56, React Native 0.85, expo-router (typed routes)
+- Reanimated + Gesture Handler (the swipe deck)
+- Supabase (Postgres, Auth, Storage, Realtime)
+- TypeScript throughout
+
+## Notes & next steps
+
+- Résumé upload uses `expo-document-picker`; in live mode files go to the
+  `resumes` Storage bucket.
+- Geo/distance filtering is currently city-string based — a real launch would
+  add lat/long + radius search.
+- Push notifications for new matches/messages are a natural next addition
+  (`expo-notifications`).

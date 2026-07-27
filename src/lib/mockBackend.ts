@@ -1,0 +1,488 @@
+/**
+ * In-memory demo backend, persisted to AsyncStorage. Implements the full
+ * ShiftMatch flow (auth, profiles, swiping, mutual matches, chat) with no
+ * external services, so the app is fully usable out of the box.
+ *
+ * Demo conventions (documented in the README):
+ *  - A worker "liking" a shift creates a match immediately — the seeded
+ *    business is treated as having already liked the worker. In the live
+ *    Supabase backend a match requires both real swipes.
+ *  - Seeded workers arrive having already liked specific shifts, so a new
+ *    business account has applicants to review right away.
+ */
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import type { Backend } from './backend';
+import { SEED_BUSINESSES, SEED_SHIFTS, SEED_WORKERS } from './seed';
+import type {
+  Account,
+  Business,
+  InterestedWorker,
+  Match,
+  Message,
+  ResumeFile,
+  Role,
+  Session,
+  Shift,
+  SwipeDirection,
+  SwipeResult,
+  WorkerProfile,
+} from './types';
+import { uid } from './util';
+
+interface StoredAccount {
+  userId: string;
+  email: string;
+  password: string;
+  role: Role | null;
+  worker?: WorkerProfile;
+  business?: Business;
+}
+
+interface Swipe {
+  id: string;
+  swiperId: string;
+  role: Role;
+  shiftId: string;
+  workerId: string;
+  direction: SwipeDirection;
+  createdAt: string;
+}
+
+interface DB {
+  version: number;
+  accounts: Record<string, StoredAccount>;
+  shifts: Shift[];
+  swipes: Swipe[];
+  matches: Match[];
+  messages: Message[];
+}
+
+const DB_KEY = 'shiftmatch.db.v1';
+const SESSION_KEY = 'shiftmatch.session.v1';
+
+function seedDB(): DB {
+  const accounts: Record<string, StoredAccount> = {};
+
+  for (const b of SEED_BUSINESSES) {
+    accounts[b.id] = {
+      userId: b.id,
+      email: `${b.id}@demo.shiftmatch`,
+      password: 'demo',
+      role: 'business',
+      business: b,
+    };
+  }
+
+  const swipes: Swipe[] = [];
+  for (const w of SEED_WORKERS) {
+    const { likedShiftIds, ...worker } = w;
+    accounts[w.id] = {
+      userId: w.id,
+      email: `${w.id}@demo.shiftmatch`,
+      password: 'demo',
+      role: 'worker',
+      worker,
+    };
+    for (const shiftId of likedShiftIds) {
+      swipes.push({
+        id: uid('swipe'),
+        swiperId: w.id,
+        role: 'worker',
+        shiftId,
+        workerId: w.id,
+        direction: 'like',
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return {
+    version: 1,
+    accounts,
+    shifts: SEED_SHIFTS.map((s) => ({ ...s })),
+    swipes,
+    matches: [],
+    messages: [],
+  };
+}
+
+const GREETINGS = [
+  "Hi! Thanks for the interest — are you still free for this shift?",
+  "Hey, your profile looks great. Can you confirm your availability?",
+  "Thanks for swiping! Want to lock this one in?",
+];
+
+/** Simple in-process event bus for realtime message subscriptions. */
+type MsgListener = (m: Message) => void;
+const listeners = new Map<string, Set<MsgListener>>();
+function emit(matchId: string, m: Message) {
+  listeners.get(matchId)?.forEach((cb) => cb(m));
+}
+
+export class MockBackend implements Backend {
+  readonly isLive = false;
+  private db: DB | null = null;
+  private currentUserId: string | null = null;
+  private loaded = false;
+
+  // ---- persistence ----
+  private async load() {
+    if (this.loaded) return;
+    const [rawDb, rawSession] = await Promise.all([
+      AsyncStorage.getItem(DB_KEY),
+      AsyncStorage.getItem(SESSION_KEY),
+    ]);
+    this.db = rawDb ? (JSON.parse(rawDb) as DB) : seedDB();
+    this.currentUserId = rawSession || null;
+    if (!rawDb) await this.persist();
+    this.loaded = true;
+  }
+
+  private async persist() {
+    if (this.db) await AsyncStorage.setItem(DB_KEY, JSON.stringify(this.db));
+  }
+
+  private async setSession(userId: string | null) {
+    this.currentUserId = userId;
+    if (userId) await AsyncStorage.setItem(SESSION_KEY, userId);
+    else await AsyncStorage.removeItem(SESSION_KEY);
+  }
+
+  private get data(): DB {
+    if (!this.db) throw new Error('Backend not loaded');
+    return this.db;
+  }
+
+  private me(): StoredAccount {
+    if (!this.currentUserId) throw new Error('Not signed in');
+    const acc = this.data.accounts[this.currentUserId];
+    if (!acc) throw new Error('Account not found');
+    return acc;
+  }
+
+  // ---- hydration ----
+  private hydrateShift(s: Shift): Shift {
+    return { ...s, business: this.data.accounts[s.businessId]?.business };
+  }
+
+  private hydrateMatch(m: Match): Match {
+    return {
+      ...m,
+      shift: this.data.shifts.find((s) => s.id === m.shiftId),
+      worker: this.data.accounts[m.workerId]?.worker,
+      business: this.data.accounts[m.businessId]?.business,
+    };
+  }
+
+  // ---- auth ----
+  async getSession(): Promise<Session | null> {
+    await this.load();
+    if (!this.currentUserId) return null;
+    const acc = this.data.accounts[this.currentUserId];
+    return acc ? { userId: acc.userId, email: acc.email } : null;
+  }
+
+  async signUp(email: string, password: string): Promise<Session> {
+    await this.load();
+    const normalized = email.trim().toLowerCase();
+    const exists = Object.values(this.data.accounts).find((a) => a.email === normalized);
+    if (exists) throw new Error('An account with that email already exists.');
+    const userId = uid('user');
+    this.data.accounts[userId] = { userId, email: normalized, password, role: null };
+    await this.persist();
+    await this.setSession(userId);
+    return { userId, email: normalized };
+  }
+
+  async signIn(email: string, password: string): Promise<Session> {
+    await this.load();
+    const normalized = email.trim().toLowerCase();
+    const acc = Object.values(this.data.accounts).find((a) => a.email === normalized);
+    if (!acc || acc.password !== password) throw new Error('Invalid email or password.');
+    await this.setSession(acc.userId);
+    return { userId: acc.userId, email: acc.email };
+  }
+
+  async signOut(): Promise<void> {
+    await this.setSession(null);
+  }
+
+  // ---- account / profile ----
+  async getAccount(): Promise<Account | null> {
+    await this.load();
+    if (!this.currentUserId) return null;
+    const acc = this.data.accounts[this.currentUserId];
+    if (!acc) return null;
+    return {
+      session: { userId: acc.userId, email: acc.email },
+      role: acc.role,
+      worker: acc.worker,
+      business: acc.business,
+    };
+  }
+
+  async setRole(role: Role): Promise<void> {
+    this.me().role = role;
+    await this.persist();
+  }
+
+  async saveWorkerProfile(data: Omit<WorkerProfile, 'id'>): Promise<WorkerProfile> {
+    const acc = this.me();
+    const worker: WorkerProfile = { ...acc.worker, ...data, id: acc.userId };
+    acc.worker = worker;
+    acc.role = 'worker';
+    await this.persist();
+    return worker;
+  }
+
+  async saveBusinessProfile(data: Omit<Business, 'id'>): Promise<Business> {
+    const acc = this.me();
+    const business: Business = { ...acc.business, ...data, id: acc.userId };
+    acc.business = business;
+    acc.role = 'business';
+    await this.persist();
+    return business;
+  }
+
+  async uploadResume(file: ResumeFile): Promise<{ url: string; name: string }> {
+    // Demo: we just keep the local uri/name. Live backend uploads to Storage.
+    const acc = this.me();
+    if (acc.worker) {
+      acc.worker.resumeUrl = file.uri;
+      acc.worker.resumeName = file.name;
+      await this.persist();
+    }
+    return { url: file.uri, name: file.name };
+  }
+
+  // ---- shifts ----
+  async workerDeck(): Promise<Shift[]> {
+    await this.load();
+    const meId = this.me().userId;
+    const swiped = new Set(
+      this.data.swipes.filter((s) => s.swiperId === meId).map((s) => s.shiftId),
+    );
+    return this.data.shifts
+      .filter((s) => s.status === 'open' && !swiped.has(s.id))
+      .map((s) => this.hydrateShift(s));
+  }
+
+  async myShifts(): Promise<Shift[]> {
+    await this.load();
+    const meId = this.me().userId;
+    return this.data.shifts
+      .filter((s) => s.businessId === meId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((s) => this.hydrateShift(s));
+  }
+
+  async createShift(
+    data: Omit<Shift, 'id' | 'businessId' | 'status' | 'createdAt' | 'business'>,
+  ): Promise<Shift> {
+    const acc = this.me();
+    const shift: Shift = {
+      ...data,
+      id: uid('shift'),
+      businessId: acc.userId,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+    this.data.shifts.unshift(shift);
+    this.seedApplicants(shift);
+    await this.persist();
+    return this.hydrateShift(shift);
+  }
+
+  /**
+   * Demo nicety: when a business posts a shift, have a couple of seeded workers
+   * "like" it so the Applicants deck has cards to review right away. (No-op in
+   * the live backend, where applicants come from real worker swipes.)
+   */
+  private seedApplicants(shift: Shift) {
+    const seededWorkers = Object.values(this.data.accounts).filter(
+      (a) => a.role === 'worker' && a.userId.startsWith('wk_') && a.worker,
+    );
+    const roleLc = shift.role.toLowerCase();
+    const relevant = seededWorkers.filter((a) =>
+      a.worker!.headline.toLowerCase().includes(roleLc.split(' ')[0]),
+    );
+    const pick = (relevant.length ? relevant : seededWorkers).slice(0, 2);
+    for (const a of pick) {
+      this.data.swipes.push({
+        id: uid('swipe'),
+        swiperId: a.userId,
+        role: 'worker',
+        shiftId: shift.id,
+        workerId: a.userId,
+        direction: 'like',
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  async closeShift(shiftId: string): Promise<void> {
+    const shift = this.data.shifts.find((s) => s.id === shiftId);
+    if (shift) shift.status = 'closed';
+    await this.persist();
+  }
+
+  // ---- swiping ----
+  private findMatch(shiftId: string, workerId: string): Match | undefined {
+    return this.data.matches.find((m) => m.shiftId === shiftId && m.workerId === workerId);
+  }
+
+  private createMatch(shift: Shift, workerId: string): Match {
+    const existing = this.findMatch(shift.id, workerId);
+    if (existing) return existing;
+    const match: Match = {
+      id: uid('match'),
+      shiftId: shift.id,
+      workerId,
+      businessId: shift.businessId,
+      createdAt: new Date().toISOString(),
+    };
+    this.data.matches.unshift(match);
+    // Seed a friendly opener from the business so the chat isn't empty.
+    const greeting: Message = {
+      id: uid('msg'),
+      matchId: match.id,
+      senderId: shift.businessId,
+      body: GREETINGS[this.data.matches.length % GREETINGS.length],
+      createdAt: new Date().toISOString(),
+    };
+    this.data.messages.push(greeting);
+    match.lastMessage = greeting.body;
+    match.lastMessageAt = greeting.createdAt;
+    return match;
+  }
+
+  async swipeShift(shiftId: string, direction: SwipeDirection): Promise<SwipeResult> {
+    const acc = this.me();
+    const shift = this.data.shifts.find((s) => s.id === shiftId);
+    if (!shift) return { matched: false };
+    this.data.swipes.push({
+      id: uid('swipe'),
+      swiperId: acc.userId,
+      role: 'worker',
+      shiftId,
+      workerId: acc.userId,
+      direction,
+      createdAt: new Date().toISOString(),
+    });
+    let result: SwipeResult = { matched: false };
+    if (direction !== 'pass') {
+      const match = this.createMatch(shift, acc.userId);
+      result = { matched: true, match: this.hydrateMatch(match) };
+    }
+    await this.persist();
+    return result;
+  }
+
+  async businessDeck(): Promise<InterestedWorker[]> {
+    await this.load();
+    const meId = this.me().userId;
+    const myShiftIds = new Set(
+      this.data.shifts.filter((s) => s.businessId === meId && s.status === 'open').map((s) => s.id),
+    );
+    const reviewed = new Set(
+      this.data.swipes
+        .filter((s) => s.swiperId === meId && s.role === 'business')
+        .map((s) => `${s.shiftId}:${s.workerId}`),
+    );
+    const cards: InterestedWorker[] = [];
+    for (const swipe of this.data.swipes) {
+      if (swipe.role !== 'worker' || swipe.direction === 'pass') continue;
+      if (!myShiftIds.has(swipe.shiftId)) continue;
+      if (reviewed.has(`${swipe.shiftId}:${swipe.workerId}`)) continue;
+      if (this.findMatch(swipe.shiftId, swipe.workerId)) continue;
+      const worker = this.data.accounts[swipe.workerId]?.worker;
+      const shift = this.data.shifts.find((s) => s.id === swipe.shiftId);
+      if (worker && shift) cards.push({ worker, shift: this.hydrateShift(shift), swipedAt: swipe.createdAt });
+    }
+    return cards.sort((a, b) => a.swipedAt.localeCompare(b.swipedAt));
+  }
+
+  async swipeWorker(
+    shiftId: string,
+    workerId: string,
+    direction: SwipeDirection,
+  ): Promise<SwipeResult> {
+    const acc = this.me();
+    this.data.swipes.push({
+      id: uid('swipe'),
+      swiperId: acc.userId,
+      role: 'business',
+      shiftId,
+      workerId,
+      direction,
+      createdAt: new Date().toISOString(),
+    });
+    let result: SwipeResult = { matched: false };
+    if (direction !== 'pass') {
+      const shift = this.data.shifts.find((s) => s.id === shiftId);
+      if (shift) {
+        const match = this.createMatch(shift, workerId);
+        result = { matched: true, match: this.hydrateMatch(match) };
+      }
+    }
+    await this.persist();
+    return result;
+  }
+
+  // ---- matches + chat ----
+  async listMatches(): Promise<Match[]> {
+    await this.load();
+    const meId = this.me().userId;
+    return this.data.matches
+      .filter((m) => m.workerId === meId || m.businessId === meId)
+      .map((m) => this.hydrateMatch(m))
+      .sort((a, b) => (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt));
+  }
+
+  async getMatch(matchId: string): Promise<Match | null> {
+    await this.load();
+    const m = this.data.matches.find((x) => x.id === matchId);
+    return m ? this.hydrateMatch(m) : null;
+  }
+
+  async listMessages(matchId: string): Promise<Message[]> {
+    await this.load();
+    return this.data.messages
+      .filter((m) => m.matchId === matchId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async sendMessage(matchId: string, body: string): Promise<Message> {
+    const acc = this.me();
+    const msg: Message = {
+      id: uid('msg'),
+      matchId,
+      senderId: acc.userId,
+      body: body.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    this.data.messages.push(msg);
+    const match = this.data.matches.find((m) => m.id === matchId);
+    if (match) {
+      match.lastMessage = msg.body;
+      match.lastMessageAt = msg.createdAt;
+    }
+    await this.persist();
+    emit(matchId, msg);
+    return msg;
+  }
+
+  subscribeMessages(matchId: string, onMessage: (m: Message) => void): () => void {
+    let set = listeners.get(matchId);
+    if (!set) {
+      set = new Set();
+      listeners.set(matchId, set);
+    }
+    set.add(onMessage);
+    return () => {
+      set?.delete(onMessage);
+    };
+  }
+}
