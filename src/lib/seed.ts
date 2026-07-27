@@ -152,9 +152,12 @@ const STANDARD_SHIFTS: Omit<Shift, 'fillMode'>[] = [
   },
 ];
 
+// `race` because it is the only mode the app implements — a demo shift marked
+// `standard` would behave as `race` anyway and hide the offer flow behind a
+// label that does not match it. See BIG-78.
 export const SEED_SHIFTS: Shift[] = STANDARD_SHIFTS.map((s) => ({
   ...s,
-  fillMode: 'standard',
+  fillMode: 'race',
 }));
 
 /**

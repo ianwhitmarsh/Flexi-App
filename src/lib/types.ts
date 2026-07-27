@@ -69,9 +69,14 @@ export interface Business {
 export type ShiftStatus = 'open' | 'filled' | 'closed';
 
 /**
- * How the employer wants the shift filled. `standard` is the original
- * swipe-and-match flow; `race` sends batch offers where the first worker to
- * accept books the shift.
+ * How the employer wants the shift filled.
+ *
+ * `race` sends batch offers where the first worker to accept books the shift,
+ * and is the only mode implemented. `standard` is reserved for one-at-a-time
+ * exclusive offers (BIG-47) and is **not selectable** in the app: nothing
+ * enforces `fill_mode`, so a shift marked `standard` behaves as `race`.
+ * Existing `standard` rows are kept and behave that way; the value is not
+ * removed so BIG-47 has somewhere to land.
  */
 export type FillMode = 'standard' | 'race';
 
