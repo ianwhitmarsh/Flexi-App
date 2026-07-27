@@ -3,7 +3,8 @@
  *
  * The demo backend is the one we can exercise end to end here; the live
  * backend gets the same guarantees from `accept_offer` in db/schema.sql
- * (`select ... for update` plus `unique (shift_id)` on bookings).
+ * (`select ... for update` plus `unique (shift_id)` on bookings, and
+ * `bookings_no_worker_overlap` for one worker's overlapping shifts — BIG-58).
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -186,6 +187,33 @@ describe('acceptOffer', () => {
     const res = await backend.acceptOffer(second.offers[0].id);
     expect(res.status).toBe('overlap');
     expect(res.booking).toBeUndefined();
+    expect(await backend.listMyBookings()).toHaveLength(1);
+  });
+
+  // BIG-58. The demo backend serialises every accept through one queue, so the
+  // concurrent case reduces to the sequential one above. The live backend locks
+  // per shift and cannot, which is why it also carries
+  // `bookings_no_worker_overlap` in db/schema.sql.
+  it('refuses the loser when one worker accepts two overlapping shifts at once', async () => {
+    const { backend, shift, workerA } = await setupOfferedShift();
+
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    const clashing = await backend.createShift(
+      shiftInput({ title: 'Afternoon Barista', startTime: '16:00', endTime: '20:00' }),
+    );
+    const second = await backend.sendOffers(clashing.id, [workerA]);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    const forOriginal = (await backend.listMyOffers()).find((o) => o.shiftId === shift.id)!;
+
+    // Both in flight before either resolves.
+    const results = await Promise.all([
+      backend.acceptOffer(forOriginal.id),
+      backend.acceptOffer(second.offers[0].id),
+    ]);
+
+    expect(results.map((r) => r.status).sort()).toEqual(['accepted', 'overlap']);
+    expect(results.filter((r) => r.booking)).toHaveLength(1);
     expect(await backend.listMyBookings()).toHaveLength(1);
   });
 
