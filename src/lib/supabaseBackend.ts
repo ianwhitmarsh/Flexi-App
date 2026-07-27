@@ -422,6 +422,50 @@ export class SupabaseBackend implements Backend {
     return data ? { interested: true, thread: toMatch(data) } : { interested: true };
   }
 
+  async getWorkerProfile(workerId: string): Promise<WorkerProfile | null> {
+    const id = await this.uid();
+
+    // `workers readable` would hand this to any signed-in user, so the
+    // connection check is enforced here rather than leaned on from RLS. Three
+    // cheap existence probes, each scoped to shifts this caller owns; a worker
+    // asking owns no shifts, so every one of them comes back empty.
+    const [interest, offered, booked] = await Promise.all([
+      this.sb
+        .from('swipes')
+        .select('id, shifts!inner(business_id)')
+        .eq('role', 'worker')
+        .neq('direction', 'pass')
+        .eq('worker_id', workerId)
+        .eq('shifts.business_id', id)
+        .limit(1),
+      this.sb
+        .from('offers')
+        .select('id, shifts!inner(business_id)')
+        .eq('worker_id', workerId)
+        .eq('shifts.business_id', id)
+        .limit(1),
+      this.sb
+        .from('bookings')
+        .select('id')
+        .eq('worker_id', workerId)
+        .eq('business_id', id)
+        .limit(1),
+    ]);
+    const connected =
+      (interest.data?.length ?? 0) > 0 ||
+      (offered.data?.length ?? 0) > 0 ||
+      (booked.data?.length ?? 0) > 0;
+    if (!connected) return null;
+
+    const { data, error } = await this.sb
+      .from('worker_profiles')
+      .select('*')
+      .eq('id', workerId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? toWorker(data) : null;
+  }
+
   // ---- race-mode offers ----
   async interestedWorkers(shiftId: string): Promise<InterestedWorker[]> {
     const id = await this.uid();

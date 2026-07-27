@@ -195,7 +195,13 @@ export default function Discover() {
                   </View>
 
                   {rows.map((card) => (
-                    <View key={`${shift.id}:${card.worker.id}`} style={styles.row}>
+                    <Pressable
+                      key={`${shift.id}:${card.worker.id}`}
+                      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                      onPress={() => router.push(`/worker/${card.worker.id}`)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${card.worker.fullName}'s profile`}
+                    >
                       <Avatar name={card.worker.fullName} size={46} />
                       <View style={styles.rowBody}>
                         <Text style={styles.name} numberOfLines={1}>
@@ -220,7 +226,7 @@ export default function Discover() {
                         <Ionicons name="chatbubble-ellipses" size={16} color={palette.onGradientText} />
                         <Text style={styles.messageText}>Message</Text>
                       </Pressable>
-                    </View>
+                    </Pressable>
                   ))}
 
                   <Button
@@ -307,6 +313,7 @@ const styles = StyleSheet.create({
   groupTitle: { fontSize: 17, fontWeight: '900', color: palette.text, letterSpacing: -0.3 },
   groupMeta: { fontSize: 12.5, color: palette.textMuted, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  rowPressed: { opacity: 0.7 },
   rowBody: { flex: 1, gap: 1 },
   name: { fontSize: 15.5, fontWeight: '800', color: palette.text },
   headline: { fontSize: 13, color: palette.textMuted },
