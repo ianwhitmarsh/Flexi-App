@@ -260,6 +260,51 @@ create table if not exists public.bookings (
   created_at   timestamptz not null default now()
 );
 
+-- The shift's window as a range, used by the overlap constraint below.
+--
+-- `start_time` / `end_time` are free text and nothing validates that the end
+-- follows the start. Such a shift yields the empty range, which overlaps
+-- nothing — matching the time comparison in `accept_offer`, which never
+-- reports a clash for one either.
+create or replace function public.shift_slot(p_date date, p_start text, p_end text)
+returns tsrange
+language sql
+immutable
+as $$
+  select tsrange(
+    p_date + p_start::time,
+    greatest(p_date + p_end::time, p_date + p_start::time),
+    '[)'
+  );
+$$;
+
+-- One worker cannot hold two confirmed bookings that overlap in time.
+--
+-- The shift row lock in `accept_offer` only serialises accepts for the *same*
+-- shift. One worker accepting two different overlapping shifts at once locks
+-- two different rows, so both calls can clear the time check before either
+-- inserts. Carrying the window on the booking itself lets an exclusion
+-- constraint catch that however the two statements interleave.
+create extension if not exists btree_gist;
+
+do $$ begin
+  alter table public.bookings add column slot tsrange;
+exception when duplicate_column then null; end $$;
+
+update public.bookings b
+   set slot = public.shift_slot(s.date, s.start_time, s.end_time)
+  from public.shifts s
+ where s.id = b.shift_id and b.slot is null;
+
+alter table public.bookings alter column slot set not null;
+
+do $$ begin
+  alter table public.bookings
+    add constraint bookings_no_worker_overlap
+    exclude using gist (worker_id with =, slot with &&)
+    where (status = 'confirmed');
+exception when duplicate_object then null; end $$;
+
 -- Expo push tokens. A user can have one row per device.
 create table if not exists public.push_tokens (
   user_id     uuid not null references public.profiles (id) on delete cascade,
@@ -283,8 +328,11 @@ exception when duplicate_object then null; end $$;
 -- accept_offer: the whole first-accept-wins decision in one transaction.
 --
 -- `select ... for update` on the shift row serialises concurrent accepts for
--- the same shift, so the booking check below cannot race. SECURITY DEFINER so
--- it can move sibling offers belonging to other workers.
+-- the same shift, so the booking check below cannot race. It does not cover
+-- one worker accepting two different overlapping shifts at once — those lock
+-- different rows — so the insert also relies on `bookings_no_worker_overlap`
+-- and reports the loser as `overlap`. SECURITY DEFINER so it can move sibling
+-- offers belonging to other workers.
 --
 -- Returns one of:
 --   {"status":"accepted","bookingId":"..."}  booking created, siblings filled
@@ -304,6 +352,7 @@ declare
   v_shift      public.shifts%rowtype;
   v_booking_id uuid;
   v_overlaps   int;
+  v_slot       tsrange;
 begin
   select * into v_offer from public.offers where id = p_offer_id;
   if not found or v_offer.worker_id <> v_me then
@@ -338,9 +387,19 @@ begin
     return jsonb_build_object('status', 'overlap');
   end if;
 
-  insert into public.bookings (shift_id, worker_id, business_id, offer_id)
-  values (v_offer.shift_id, v_me, v_shift.business_id, v_offer.id)
-  returning id into v_booking_id;
+  -- The check above can still be stale if this worker is accepting another
+  -- overlapping shift concurrently: that call locked a different shift row.
+  -- `bookings_no_worker_overlap` is what actually decides it, and whichever
+  -- insert lands second gets the same `overlap` answer as the sequential case.
+  v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time);
+
+  begin
+    insert into public.bookings (shift_id, worker_id, business_id, offer_id, slot)
+    values (v_offer.shift_id, v_me, v_shift.business_id, v_offer.id, v_slot)
+    returning id into v_booking_id;
+  exception when exclusion_violation then
+    return jsonb_build_object('status', 'overlap');
+  end;
 
   update public.offers
     set status = 'accepted', responded_at = now()
