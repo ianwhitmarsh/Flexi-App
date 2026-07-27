@@ -565,6 +565,11 @@ export class MockBackend implements Backend {
       return { status: 'filled' };
     }
 
+    // Preconditions, checked after the booking test above so a worker who lost
+    // the race still gets `filled` rather than one of these.
+    if (offer.status !== 'sent') throw new Error('This offer is no longer available.');
+    if (shift.status !== 'open') throw new Error('This shift is no longer open.');
+
     if (this.hasOverlappingBooking(meId, shift)) return { status: 'overlap' };
 
     const booking: Booking = {
@@ -586,6 +591,11 @@ export class MockBackend implements Backend {
         o.respondedAt = now;
       }
     }
+
+    // The shift is taken. `workerDeck` selects on 'open', so this is what stops
+    // workers who were never offered it from swiping something already gone.
+    shift.status = 'closed';
+
     await this.persist();
     return { status: 'accepted', booking };
   }

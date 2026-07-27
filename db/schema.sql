@@ -335,9 +335,15 @@ exception when duplicate_object then null; end $$;
 -- offers belonging to other workers.
 --
 -- Returns one of:
---   {"status":"accepted","bookingId":"..."}  booking created, siblings filled
+--   {"status":"accepted","bookingId":"..."}  booking created, siblings filled,
+--                                            shift closed
 --   {"status":"filled"}                      someone else already won
 --   {"status":"overlap"}                     worker is busy at that time
+--
+-- Raises when a precondition fails: the offer is not `sent`, or the shift is
+-- not `open`. Neither is reachable from the app today — nothing declines an
+-- offer, and a losing racer is answered `filled` above — so these enforce in
+-- the function what was previously only implied by what the client displays.
 -- ---------------------------------------------------------------------------
 
 create or replace function public.accept_offer(p_offer_id uuid)
@@ -371,6 +377,18 @@ begin
       set status = 'filled', responded_at = now()
       where shift_id = v_offer.shift_id and status = 'sent';
     return jsonb_build_object('status', 'filled');
+  end if;
+
+  -- Preconditions the client cannot be trusted to enforce. Deliberately after
+  -- the booking test above: a worker who lost the race holds a `filled` offer
+  -- on a `closed` shift, and must still get the friendly `filled` answer
+  -- rather than one of these.
+  if v_offer.status <> 'sent' then
+    raise exception 'This offer is no longer available';
+  end if;
+
+  if v_shift.status <> 'open' then
+    raise exception 'This shift is no longer open';
   end if;
 
   -- Already booked elsewhere during this window? Times are HH:MM text, so cast
@@ -409,6 +427,11 @@ begin
   update public.offers
     set status = 'filled', responded_at = now()
     where shift_id = v_offer.shift_id and id <> v_offer.id and status = 'sent';
+
+  -- The shift is taken. Both decks select on `status = 'open'`, so closing it
+  -- here is what stops workers who were never offered it from swiping a shift
+  -- that is already gone.
+  update public.shifts set status = 'closed' where id = v_offer.shift_id;
 
   return jsonb_build_object('status', 'accepted', 'bookingId', v_booking_id);
 end;
