@@ -29,6 +29,26 @@ import type {
   WorkerProfile,
 } from './types';
 
+/** How long a signed résumé link stays valid. Long enough to open, not to keep. */
+const RESUME_URL_TTL_SECONDS = 300;
+
+/**
+ * The storage path for a stored résumé reference.
+ *
+ * New rows hold the path already. Rows written while the bucket was public
+ * hold a full URL like `https://<project>/storage/v1/object/public/resumes/
+ * <uid>/<file>`; the path is everything after the bucket name, so those keep
+ * opening even though their old public URL no longer resolves.
+ */
+export function resumePathFrom(ref: string): string | null {
+  if (!ref) return null;
+  if (!/^https?:\/\//i.test(ref)) return ref;
+  const marker = `/${RESUME_BUCKET}/`;
+  const at = ref.indexOf(marker);
+  if (at === -1) return null;
+  return ref.slice(at + marker.length).split('?')[0] || null;
+}
+
 // ---- row <-> domain mappers ----
 function toShift(row: any): Shift {
   return {
@@ -295,8 +315,23 @@ export class SupabaseBackend implements Backend {
         upsert: true,
       });
     if (error) throw error;
-    const { data } = this.sb.storage.from(RESUME_BUCKET).getPublicUrl(path);
-    return { url: data.publicUrl, name: file.name };
+    // The PATH, not a URL. The bucket is private, so a permanent URL would
+    // either not work or — as before this change — work for everybody forever.
+    return { url: path, name: file.name };
+  }
+
+  async resolveResumeUrl(ref: string): Promise<string | null> {
+    if (!ref) return null;
+    const path = resumePathFrom(ref);
+    if (!path) return null;
+
+    // Signing is authorised by the storage read policy, so an employer with no
+    // connection to this worker gets an error rather than a URL.
+    const { data, error } = await this.sb.storage
+      .from(RESUME_BUCKET)
+      .createSignedUrl(path, RESUME_URL_TTL_SECONDS);
+    if (error) return null;
+    return data?.signedUrl ?? null;
   }
 
   // ---- shifts ----
