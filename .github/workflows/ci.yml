@@ -31,3 +31,9 @@ jobs:
         # TZ pinned so timezone assertions cannot coincide with the
         # runner's zone — see jest.setup.js for why that matters.
         run: TZ=UTC npx jest --ci
+
+      # Runs db/schema.sql against a real PostgreSQL (PGlite, in memory — no
+      # service container needed). The file is applied by hand in the Supabase
+      # SQL editor, so this is the only thing that ever executes it.
+      - name: Schema tests
+        run: npm run test:db
