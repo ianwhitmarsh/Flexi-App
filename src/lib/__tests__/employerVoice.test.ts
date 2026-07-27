@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { buildOpenerPreview } from '../opener';
 import { MockBackend } from '../mockBackend';
+import { SupabaseBackend } from '../supabaseBackend';
 import type { AiProfile } from '../types';
 
 jest.mock('../push', () => ({
@@ -81,6 +82,61 @@ describe('ai_profile persistence', () => {
     const got = (await backend.getAccount())?.business;
     expect(got?.city).toBe('Berkeley, CA');
     expect(got?.aiProfile).toEqual({ tone: 'warm', dressCode: 'Apron' });
+  });
+});
+
+/**
+ * The mock tests above pin only half the contract. The two backends disagreeing
+ * on what "omitted" means is precisely how an employer would lose their voice
+ * profile by editing their city — so the live half needs pinning as well, via a
+ * stub client since there is no reachable project.
+ */
+describe('supabase parity for ai_profile', () => {
+  function stubSupabase(backend: SupabaseBackend) {
+    const upserts: { table: string; row: any }[] = [];
+    const builder = (table: string) => {
+      const self: any = {
+        upsert: (row: any) => {
+          upserts.push({ table, row });
+          return self;
+        },
+        update: () => self,
+        eq: () => self,
+        select: () => self,
+        single: async () => ({ data: { id: 'biz_1', company_name: 'X' }, error: null }),
+        then: (resolve: any) => resolve({ data: [], error: null }),
+      };
+      return self;
+    };
+    Object.defineProperty(backend, 'sb', {
+      get: () => ({
+        auth: { getUser: async () => ({ data: { user: { id: 'biz_1' } } }) },
+        from: (table: string) => builder(table),
+      }),
+    });
+    return upserts;
+  }
+
+  it('omits ai_profile entirely when the caller does not supply one', async () => {
+    const live = new SupabaseBackend();
+    const upserts = stubSupabase(live);
+
+    await live.saveBusinessProfile(BASE);
+
+    const row = upserts.find((u) => u.table === 'businesses')!.row;
+    // `upsert` only SETs the columns present, so an absent key preserves the
+    // stored value. Sending `{}` would blank it.
+    expect('ai_profile' in row).toBe(false);
+  });
+
+  it('writes ai_profile when the caller does supply one', async () => {
+    const live = new SupabaseBackend();
+    const upserts = stubSupabase(live);
+
+    await live.saveBusinessProfile({ ...BASE, aiProfile: { tone: 'casual' } });
+
+    const row = upserts.find((u) => u.table === 'businesses')!.row;
+    expect(row.ai_profile).toEqual({ tone: 'casual' });
   });
 });
 
