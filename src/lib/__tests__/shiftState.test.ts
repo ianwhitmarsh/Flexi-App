@@ -10,7 +10,7 @@
 import { hasShiftEnded, isShiftLive } from '../util';
 
 /** A shift running 09:00–17:00 on a fixed day, in the runtime's own zone. */
-const shift = (over: Partial<{ status: string; date: string }> = {}) => ({
+const shift = (over: Partial<{ status: string; date: string; timezone: string }> = {}) => ({
   date: '2026-07-27',
   startTime: '09:00',
   endTime: '17:00',
@@ -48,6 +48,18 @@ describe('isShiftLive', () => {
   it('agrees with hasShiftEnded on the timing half', () => {
     expect(hasShiftEnded(shift(), midShift)).toBe(false);
     expect(hasShiftEnded(shift(), afterShift)).toBe(true);
+  });
+
+  it("reads the end by the shift's own clock, not the viewer's", () => {
+    // 09:00–17:00 in Chicago (CDT, UTC-5) ends at 22:00 UTC. These instants are
+    // absolute, so the assertion holds whatever zone the runtime is in.
+    const dallas = shift({ timezone: 'America/Chicago' });
+
+    // 20:00 UTC is 15:00 in Dallas — still running, though a viewer reading the
+    // times as their own would have called it over at 17:00 UTC.
+    expect(isShiftLive(dallas, new Date(Date.UTC(2026, 6, 27, 20, 0)))).toBe(true);
+    // 22:00 UTC is 17:00 in Dallas — over.
+    expect(isShiftLive(dallas, new Date(Date.UTC(2026, 6, 27, 22, 0)))).toBe(false);
   });
 
   it('carries the overnight rule through, so a late-night shift stays live', () => {
