@@ -163,6 +163,14 @@ export class SupabaseBackend implements Backend {
     const { data, error } = await this.sb.auth.signInWithPassword({ email, password });
     if (error) throw error;
     const u = data.user;
+    // An auth user created outside the app — from the dashboard, or predating
+    // the table — has no profile row, and without one `setRole` matches nothing
+    // and onboarding loops. `ignoreDuplicates` makes this a no-op for everyone
+    // else: it must never clear a role that has already been chosen.
+    const { error: profileErr } = await this.sb
+      .from('profiles')
+      .upsert({ id: u.id, email: u.email }, { onConflict: 'id', ignoreDuplicates: true });
+    if (profileErr) throw profileErr;
     return { userId: u.id, email: u.email ?? email };
   }
 
@@ -201,8 +209,15 @@ export class SupabaseBackend implements Backend {
 
   async setRole(role: Role): Promise<void> {
     const id = await this.uid();
-    const { error } = await this.sb.from('profiles').update({ role }).eq('id', id);
+    // `select()` so a missing profile row is a zero-row result rather than a
+    // silent success — that is what left the app looping on role selection.
+    const { data, error } = await this.sb
+      .from('profiles')
+      .update({ role })
+      .eq('id', id)
+      .select('id');
     if (error) throw error;
+    if (!data?.length) throw new Error('Your profile is missing. Sign out and sign in again.');
   }
 
   async saveWorkerProfile(data: Omit<WorkerProfile, 'id'>): Promise<WorkerProfile> {
