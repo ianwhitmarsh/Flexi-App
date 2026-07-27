@@ -24,6 +24,7 @@ jest.mock('../push', () => ({
 const BUSINESS = { email: 'biz@test.dev', password: 'pw' };
 const WORKER_A = { email: 'a@test.dev', password: 'pw' };
 const WORKER_B = { email: 'b@test.dev', password: 'pw' };
+const WORKER_C = { email: 'c@test.dev', password: 'pw' };
 
 type ShiftInput = Parameters<Backend['createShift']>[0];
 
@@ -232,6 +233,66 @@ describe('acceptOffer', () => {
 
     expect((await backend.acceptOffer(second.offers[0].id)).status).toBe('accepted');
     expect(await backend.listMyBookings()).toHaveLength(2);
+  });
+});
+
+// BIG-59.
+describe('acceptOffer preconditions', () => {
+  it('closes the shift, so other workers stop seeing it in the deck', async () => {
+    const { backend, shift, offerA } = await setupOfferedShift();
+
+    // A third worker, never offered the shift and never having swiped it, is
+    // the one this criterion is about — A and B already swiped it away.
+    await signUpWorker(backend, WORKER_C, 'Cal Worker');
+    expect((await backend.workerDeck()).map((s) => s.id)).toContain(shift.id);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(offerA.id)).status).toBe('accepted');
+
+    await backend.signIn(WORKER_C.email, WORKER_C.password);
+    expect((await backend.workerDeck()).map((s) => s.id)).not.toContain(shift.id);
+  });
+
+  it('rejects an offer whose shift the employer has since closed', async () => {
+    const { backend, shift, offerA } = await setupOfferedShift();
+
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    await backend.closeShift(shift.id);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await expect(backend.acceptOffer(offerA.id)).rejects.toThrow(/no longer open/);
+    expect(await backend.listMyBookings()).toHaveLength(0);
+  });
+
+  /**
+   * Nothing in either backend writes `declined`, and the other non-`sent`
+   * statuses only exist once a booking does — which the `filled` branch answers
+   * first. So the guard is unreachable through the API and the state has to be
+   * seeded to exercise it at all.
+   */
+  it('rejects an offer that is not sent', async () => {
+    const { backend, offerA } = await setupOfferedShift();
+
+    const db = JSON.parse((await AsyncStorage.getItem('shiftmatch.db.v1'))!);
+    db.offers.find((o: any) => o.id === offerA.id).status = 'declined';
+    await AsyncStorage.setItem('shiftmatch.db.v1', JSON.stringify(db));
+
+    const fresh = new MockBackend();
+    await fresh.signIn(WORKER_A.email, WORKER_A.password);
+    await expect(fresh.acceptOffer(offerA.id)).rejects.toThrow(/no longer available/);
+    expect(await fresh.listMyBookings()).toHaveLength(0);
+  });
+
+  it('still answers filled to the loser rather than a precondition error', async () => {
+    const { backend, offerA, offerB } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.acceptOffer(offerA.id);
+
+    // B's offer is now `filled` and the shift `closed` — both preconditions
+    // fail — but the friendly answer has to win.
+    await backend.signIn(WORKER_B.email, WORKER_B.password);
+    expect((await backend.acceptOffer(offerB.id)).status).toBe('filled');
   });
 });
 
