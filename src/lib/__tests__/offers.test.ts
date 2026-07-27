@@ -330,6 +330,57 @@ describe('overnight shifts', () => {
   });
 });
 
+// BIG-69.
+describe('declineOffer', () => {
+  it('retires only the declining worker, leaving the race open', async () => {
+    const { backend, shift, offerA, offerB } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.declineOffer(offerA.id);
+    expect(await backend.listMyOffers()).toHaveLength(0);
+
+    // B is untouched and can still take the shift.
+    await backend.signIn(WORKER_B.email, WORKER_B.password);
+    expect(await backend.listMyOffers()).toHaveLength(1);
+    expect((await backend.acceptOffer(offerB.id)).status).toBe('accepted');
+
+    // And A's decline created nothing.
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect(await backend.listMyBookings()).toHaveLength(0);
+    void shift;
+  });
+
+  it('leaves the shift open and unbooked', async () => {
+    const { backend, shift, offerA, workerB } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.declineOffer(offerA.id);
+
+    // Still in a third worker's deck, so nothing closed the shift.
+    await signUpWorker(backend, WORKER_C, 'Cal Worker');
+    expect((await backend.workerDeck()).map((s) => s.id)).toContain(shift.id);
+    void workerB;
+  });
+
+  it('refuses an offer that is no longer live', async () => {
+    const { backend, offerA, offerB } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.acceptOffer(offerA.id);
+
+    // B's offer is `filled` now — the race is decided and cannot be rewritten.
+    await backend.signIn(WORKER_B.email, WORKER_B.password);
+    await expect(backend.declineOffer(offerB.id)).rejects.toThrow(/no longer available/);
+  });
+
+  it("refuses another worker's offer", async () => {
+    const { backend, offerB } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await expect(backend.declineOffer(offerB.id)).rejects.toThrow(/not found/i);
+  });
+});
+
 // BIG-59.
 describe('acceptOffer preconditions', () => {
   it('closes the shift, so other workers stop seeing it in the deck', async () => {
@@ -396,6 +447,7 @@ describe('backend parity', () => {
     'sendOffers',
     'listMyOffers',
     'acceptOffer',
+    'declineOffer',
     'listMyBookings',
     'registerPushToken',
   ] as const;

@@ -536,6 +536,22 @@ export class SupabaseBackend implements Backend {
     return { status, booking: bookingRow ? toBooking(bookingRow) : undefined };
   }
 
+  async declineOffer(offerId: string): Promise<void> {
+    const id = await this.uid();
+    // Scoped by worker and by `sent` so an accepted or filled offer cannot be
+    // rewritten, and `select` so a no-op update surfaces instead of passing
+    // silently. RLS enforces the same two conditions server-side.
+    const { data, error } = await this.sb
+      .from('offers')
+      .update({ status: 'declined', responded_at: new Date().toISOString() })
+      .eq('id', offerId)
+      .eq('worker_id', id)
+      .eq('status', 'sent')
+      .select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('This offer is no longer available.');
+  }
+
   async listMyBookings(): Promise<Booking[]> {
     const id = await this.uid();
     const { data, error } = await this.sb

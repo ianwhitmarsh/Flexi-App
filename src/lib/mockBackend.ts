@@ -640,6 +640,20 @@ export class MockBackend implements Backend {
     return { status: 'accepted', booking };
   }
 
+  async declineOffer(offerId: string): Promise<void> {
+    await this.load();
+    const meId = this.me().userId;
+    const offer = this.data.offers.find((o) => o.id === offerId);
+    if (!offer || offer.workerId !== meId) throw new Error('Offer not found.');
+    // Only a live offer can be turned down. Once it is accepted or filled the
+    // race is already decided, and declining must not rewrite that.
+    if (offer.status !== 'sent') throw new Error('This offer is no longer available.');
+
+    offer.status = 'declined';
+    offer.respondedAt = new Date().toISOString();
+    await this.persist();
+  }
+
   async listMyBookings(): Promise<Booking[]> {
     await this.load();
     const meId = this.me().userId;
