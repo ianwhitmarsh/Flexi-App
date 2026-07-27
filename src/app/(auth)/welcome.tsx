@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryText: { color: palette.primary, fontSize: 16, fontWeight: '800' },
+  primaryText: { color: palette.onGradientText, fontSize: 16, fontWeight: '800' },
   secondaryBtn: {
     height: 54,
     borderRadius: radius.pill,

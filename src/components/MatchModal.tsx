@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryText: { color: palette.primary, fontSize: 16, fontWeight: '800' },
+  primaryText: { color: palette.onGradientText, fontSize: 16, fontWeight: '800' },
   ghost: { height: 50, alignItems: 'center', justifyContent: 'center' },
   ghostText: { color: palette.onPrimary, fontSize: 16, fontWeight: '700' },
   pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
