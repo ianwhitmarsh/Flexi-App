@@ -488,6 +488,18 @@ create policy "offers business insert" on public.offers for insert with check (
   )
 );
 
+-- Declining is the one offer transition a client performs directly. Accepting
+-- goes through `accept_offer`, which is `security definer` and so bypasses
+-- these policies entirely; there is no equivalent for decline, so it needs a
+-- policy of its own. Scoped to the worker's own live offers: `using` picks the
+-- rows they may touch, `with check` stops the update leaving the row as
+-- anything but `declined` — without it a worker could set their own offer to
+-- `accepted` and skip the booking transaction.
+drop policy if exists "offers worker decline" on public.offers;
+create policy "offers worker decline" on public.offers for update
+  using (auth.uid() = worker_id and status = 'sent')
+  with check (auth.uid() = worker_id and status = 'declined');
+
 -- bookings: visible to the two participants; only `accept_offer` writes them.
 drop policy if exists "bookings participants" on public.bookings;
 create policy "bookings participants" on public.bookings for select using (

@@ -76,6 +76,11 @@ export interface Backend {
   listMyOffers(): Promise<Offer[]>;
   /** Take an offer. First accept for a shift wins; see `AcceptOfferResult`. */
   acceptOffer(offerId: string): Promise<AcceptOfferResult>;
+  /**
+   * Turn down an offer. Affects only the caller's own offer — siblings stay
+   * live and the shift stays open, so somebody else can still take it.
+   */
+  declineOffer(offerId: string): Promise<void>;
   /** Confirmed bookings for the current worker, newest first. */
   listMyBookings(): Promise<Booking[]>;
   /** Store an Expo push token for the signed-in user. */

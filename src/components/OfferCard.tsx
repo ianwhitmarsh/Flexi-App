@@ -11,10 +11,12 @@ import { formatDate, formatTimeRange } from '@/lib/util';
 export function OfferCard({
   offer,
   onAccept,
+  onDecline,
   busy,
 }: {
   offer: Offer;
   onAccept: () => void;
+  onDecline: () => void;
   busy?: boolean;
 }) {
   const shift = offer.shift;
@@ -57,6 +59,7 @@ export function OfferCard({
 
       <Text style={styles.note}>Sent to a few workers — first to accept gets it.</Text>
       <Button title="Accept shift" icon="checkmark-circle" onPress={onAccept} loading={busy} />
+      <Button title="Not this one" variant="ghost" onPress={onDecline} disabled={busy} />
     </View>
   );
 }

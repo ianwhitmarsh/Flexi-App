@@ -81,6 +81,19 @@ export default function Discover() {
     }
   };
 
+  const declineOffer = async (offer: Offer) => {
+    setAcceptingId(offer.id);
+    try {
+      await backend.declineOffer(offer.id);
+    } catch (e: any) {
+      Alert.alert('Could not decline', e?.message ?? 'Something went wrong.');
+    } finally {
+      setAcceptingId(null);
+      // The declined offer is no longer live, so the list has to be re-read.
+      await load();
+    }
+  };
+
   const goToMatch = () => {
     const id = match?.id;
     setMatch(null);
@@ -133,6 +146,7 @@ export default function Discover() {
                 offer={o}
                 busy={acceptingId === o.id}
                 onAccept={() => acceptOffer(o)}
+                onDecline={() => declineOffer(o)}
               />
             ))}
           </ScrollView>
