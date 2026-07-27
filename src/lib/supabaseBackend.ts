@@ -85,6 +85,7 @@ function toBusiness(row: any): Business {
     about: row.about ?? '',
     contactName: row.contact_name ?? '',
     logoUrl: row.logo_url ?? undefined,
+    aiProfile: row.ai_profile ?? {},
   };
 }
 
@@ -248,7 +249,7 @@ export class SupabaseBackend implements Backend {
 
   async saveBusinessProfile(data: Omit<Business, 'id'>): Promise<Business> {
     const id = await this.uid();
-    const row = {
+    const row: Record<string, unknown> = {
       id,
       company_name: data.companyName,
       category: data.category,
@@ -257,6 +258,13 @@ export class SupabaseBackend implements Backend {
       contact_name: data.contactName,
       logo_url: data.logoUrl ?? null,
     };
+    // Omitted entirely when the caller does not supply one. `upsert` only SETs
+    // the columns present in the row, so leaving the key out preserves whatever
+    // is stored — which is what `MockBackend` does. Sending `{}` here instead
+    // would blank an employer's voice profile every time they edited their
+    // plain profile, since `BusinessProfileForm` is the only caller that
+    // supplies it.
+    if (data.aiProfile !== undefined) row.ai_profile = data.aiProfile;
     const { data: saved, error } = await this.sb
       .from('businesses')
       .upsert(row)

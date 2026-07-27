@@ -39,6 +39,15 @@ create table if not exists public.businesses (
   updated_at    timestamptz not null default now()
 );
 
+-- How this business talks and what it expects, captured once at onboarding.
+-- Prompt context for the opener Flexi sends on their behalf; every key is
+-- optional, so an employer who skips the step stores `{}` rather than null and
+-- readers never have to distinguish "skipped" from "not asked yet".
+do $$ begin
+  alter table public.businesses
+    add column ai_profile jsonb not null default '{}'::jsonb;
+exception when duplicate_column then null; end $$;
+
 create table if not exists public.shifts (
   id            uuid primary key default gen_random_uuid(),
   business_id   uuid not null references public.businesses (id) on delete cascade,
