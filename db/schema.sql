@@ -1,5 +1,20 @@
 -- Flexi — Supabase schema, row-level security, and match-making trigger.
--- Paste this into the Supabase SQL editor (one project = one run).
+--
+-- Paste this into the Supabase SQL editor. Run it as many times as you like:
+-- every statement is idempotent, so applying it to a database that already has
+-- it upgrades that database rather than failing.
+--
+-- That is what the file has always been trying to be — `create table if not
+-- exists` throughout, `duplicate_column` guards on every added column, the
+-- `shifts_status_check` widening, the `bookings.slot` backfill and retype. It
+-- previously said "one project = one run", and that belief was how it came to
+-- accumulate an upgrade path that could never actually run: 15 of its 28
+-- policies had no `drop policy if exists`, so a second run aborted at the first
+-- one and nothing below it was ever reached.
+--
+-- So: when adding to this file, assume it will land on a database that already
+-- exists. `db/__tests__/rerunnable.test.mjs` fails if any statement stops being
+-- safe to repeat.
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -216,34 +231,47 @@ alter table public.matches         enable row level security;
 alter table public.messages        enable row level security;
 
 -- profiles: read/write your own row
+drop policy if exists "profiles self read"   on public.profiles;
 create policy "profiles self read"   on public.profiles for select using (auth.uid() = id);
+drop policy if exists "profiles self insert" on public.profiles;
 create policy "profiles self insert" on public.profiles for insert with check (auth.uid() = id);
+drop policy if exists "profiles self update" on public.profiles;
 create policy "profiles self update" on public.profiles for update using (auth.uid() = id);
 
 -- worker_profiles & businesses are listings: any signed-in user can read them,
 -- but only the owner can write their own.
+drop policy if exists "workers readable"   on public.worker_profiles;
 create policy "workers readable"   on public.worker_profiles for select using (auth.role() = 'authenticated');
+drop policy if exists "workers self write" on public.worker_profiles;
 create policy "workers self write" on public.worker_profiles for all
   using (auth.uid() = id) with check (auth.uid() = id);
 
+drop policy if exists "businesses readable"   on public.businesses;
 create policy "businesses readable"   on public.businesses for select using (auth.role() = 'authenticated');
+drop policy if exists "businesses self write" on public.businesses;
 create policy "businesses self write" on public.businesses for all
   using (auth.uid() = id) with check (auth.uid() = id);
 
 -- shifts: anyone signed in can browse; only the owning business can write.
+drop policy if exists "shifts readable"   on public.shifts;
 create policy "shifts readable"   on public.shifts for select using (auth.role() = 'authenticated');
+drop policy if exists "shifts owner write" on public.shifts;
 create policy "shifts owner write" on public.shifts for all
   using (auth.uid() = business_id) with check (auth.uid() = business_id);
 
 -- swipes: you can read and create your own.
+drop policy if exists "swipes self read"   on public.swipes;
 create policy "swipes self read"   on public.swipes for select using (auth.uid() = swiper_id);
+drop policy if exists "swipes self insert" on public.swipes;
 create policy "swipes self insert" on public.swipes for insert with check (auth.uid() = swiper_id);
 -- A business also needs to see worker swipes on its own shifts (to build the deck).
+drop policy if exists "swipes on my shifts" on public.swipes;
 create policy "swipes on my shifts" on public.swipes for select using (
   exists (select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid())
 );
 
 -- matches: visible to the two participants.
+drop policy if exists "matches participants" on public.matches;
 create policy "matches participants" on public.matches for select using (
   auth.uid() = worker_id or auth.uid() = business_id
 );
@@ -274,12 +302,14 @@ revoke update on public.matches from authenticated;
 grant update (last_message, last_message_at, opener_dismissed_at) on public.matches to authenticated;
 
 -- messages: readable/writable by either participant of the parent match.
+drop policy if exists "messages read" on public.messages;
 create policy "messages read" on public.messages for select using (
   exists (
     select 1 from public.matches m
     where m.id = match_id and (m.worker_id = auth.uid() or m.business_id = auth.uid())
   )
 );
+drop policy if exists "messages send" on public.messages;
 create policy "messages send" on public.messages for insert with check (
   sender_id = auth.uid() and exists (
     select 1 from public.matches m
@@ -741,4 +771,14 @@ create policy "resumes owner update" on storage.objects for update using (
 );
 
 -- Enable Realtime on messages (also add via Dashboard → Database → Replication).
-alter publication supabase_realtime add table public.messages;
+-- Adding a table already in the publication is an error rather than a no-op,
+-- so this asks first.
+do $$ begin
+  if not exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public' and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table public.messages;
+  end if;
+end $$;

@@ -9,25 +9,8 @@
 
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { blankDb, schemaRegion, span, HOUR } from './harness.mjs';
-
-/**
- * A frozen copy of schema.sql from before this change — see fixtures/README.md
- * for why it is a committed file and not `git show HEAD:db/schema.sql`.
- */
-const priorSchema = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'schema-before-tstzrange.sql'),
-  'utf8',
-);
-
-const MIGRATION = [
-  schemaRegion('-- The shift\'s window as a range', 'create table if not exists public.push_tokens'),
-  schemaRegion('create or replace function public.accept_offer', 'alter table public.offer_batches'),
-];
+import { blankDb, priorSchema, SCHEMA, span, HOUR } from './harness.mjs';
 
 const E = '00000000-0000-4000-8000-0000000000e1';
 const W = '00000000-0000-4000-8000-0000000000c1';
@@ -71,11 +54,15 @@ describe('retyping bookings.slot on a database that already has rows', () => {
   });
 
   it('applies, and applies again without erroring', async () => {
-    for (const region of MIGRATION) await db.exec(region);
+    // The whole file, not an extracted region. It could not be applied this way
+    // when this test was written — the unguarded policies stopped it long
+    // before it reached the retype — so it had to pick out the two regions the
+    // migration lived in. Now the file itself is the upgrade path.
+    await db.exec(SCHEMA);
     // The second pass is what caught the exclusion constraint's guard trapping
     // the wrong error: an exclusion constraint builds an index of the same
     // name, so Postgres reports `duplicate_table`, not `duplicate_object`.
-    for (const region of MIGRATION) await db.exec(region);
+    await db.exec(SCHEMA);
   });
 
   it('leaves slot a tstzrange that is still not null', async () => {

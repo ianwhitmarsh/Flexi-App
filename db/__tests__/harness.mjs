@@ -32,24 +32,15 @@ export async function freshDb() {
 }
 
 /**
- * The regions of schema.sql this change's migration lives in, taken verbatim
- * from the shipped file so the tests cannot drift from it.
- *
- * Applying the whole file twice is not possible: 14 of its 28 `create policy`
- * statements have no `drop policy if exists` guard, so a re-run stops at the
- * first one. That is pre-existing and tracked separately — until it is fixed
- * the migration blocks can only be exercised in isolation, which is what this
- * gives them.
+ * A frozen copy of schema.sql from before `bookings.slot` became a `tstzrange`
+ * — the state any database created up to that point is in. See
+ * fixtures/README.md for why it is a committed file rather than
+ * `git show HEAD:db/schema.sql`.
  */
-export function schemaRegion(startsWith, endsBefore) {
-  const lines = SCHEMA.split('\n');
-  const from = lines.findIndex((l) => l.startsWith(startsWith));
-  const to = lines.findIndex((l, i) => i > from && l.startsWith(endsBefore));
-  if (from < 0 || to < 0) {
-    throw new Error(`schemaRegion: no match for ${startsWith} .. ${endsBefore}`);
-  }
-  return lines.slice(from, to).join('\n');
-}
+export const priorSchema = readFileSync(
+  join(HERE, 'fixtures', 'schema-before-tstzrange.sql'),
+  'utf8',
+);
 
 let seq = 0;
 const nextId = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`;
