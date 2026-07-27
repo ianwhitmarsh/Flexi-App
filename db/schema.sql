@@ -79,6 +79,19 @@ alter table public.shifts drop constraint if exists shifts_status_check;
 alter table public.shifts
   add constraint shifts_status_check check (status in ('open', 'filled', 'closed'));
 
+-- IANA zone the shift's wall-clock times belong to, e.g. `America/Chicago`,
+-- captured from the poster's device. Nullable on purpose: shifts posted before
+-- this existed have no reliable zone to infer, and the app reads those in the
+-- viewer's zone exactly as it always did. Guessing would be worse than absent.
+--
+-- Nothing in this file uses it yet. `shift_slot` still returns a naive
+-- `tsrange` and `accept_offer` still has no ended check — see the note there.
+-- BIG-84 is the piece that makes the database use this, and it needs a project
+-- to run against before it can be trusted.
+do $$ begin
+  alter table public.shifts add column timezone text;
+exception when duplicate_column then null; end $$;
+
 create table if not exists public.swipes (
   id          uuid primary key default gen_random_uuid(),
   swiper_id   uuid not null references public.profiles (id) on delete cascade,

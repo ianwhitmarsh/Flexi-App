@@ -67,6 +67,7 @@ function toShift(row: any): Shift {
     requirements: row.requirements ?? [],
     status: row.status,
     fillMode: row.fill_mode ?? 'standard',
+    timezone: row.timezone ?? undefined,
     createdAt: row.created_at,
     business: row.businesses ? toBusiness(row.businesses) : undefined,
   };
@@ -388,6 +389,7 @@ export class SupabaseBackend implements Backend {
       requirements: data.requirements,
       status: 'open',
       fill_mode: data.fillMode,
+      timezone: data.timezone ?? null,
     };
     const { data: saved, error } = await this.sb
       .from('shifts')
