@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -13,6 +14,7 @@ import { useSession } from '@/lib/session';
 
 export default function Profile() {
   const { account, backend, signOut, refresh, isLive } = useSession();
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [editingVoice, setEditingVoice] = useState(false);
   const isWorker = account?.role === 'worker';
@@ -165,6 +167,12 @@ export default function Profile() {
               onPress={() => setEditingVoice(true)}
             />
           )}
+          <Button
+            title="Terms & privacy"
+            variant="ghost"
+            icon="document-text-outline"
+            onPress={() => router.push('/legal')}
+          />
           <Button
             title={isWorker ? 'Switch to hiring' : 'Switch to finding shifts'}
             variant="ghost"

@@ -41,9 +41,14 @@ export default function Welcome() {
           >
             <Text style={styles.secondaryText}>I already have an account</Text>
           </Pressable>
+          {/* Outside the demo-mode conditional on purpose: the agreements have
+              to be reachable without an account in every build. */}
+          <Pressable onPress={() => router.push('/legal')} hitSlop={8}>
+            <Text style={styles.legalLink}>Terms, privacy and agreements</Text>
+          </Pressable>
           {!isLive && (
             <Text style={styles.demoNote}>
-              Demo mode — sign up with any email & password to explore.
+              Demo mode — sign up with any email &amp; password to explore.
             </Text>
           )}
         </View>
@@ -94,5 +99,13 @@ const styles = StyleSheet.create({
   },
   secondaryText: { color: palette.onPrimary, fontSize: 16, fontWeight: '700' },
   pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
+  legalLink: {
+    color: palette.onPrimary,
+    opacity: 0.9,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    textDecorationLine: 'underline',
+  },
   demoNote: { color: palette.onPrimary, opacity: 0.85, fontSize: 13, textAlign: 'center', marginTop: 4 },
 });
