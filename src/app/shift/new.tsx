@@ -17,7 +17,7 @@ import { palette, radius } from '@/constants/theme';
 import { SHIFT_ROLES } from '@/lib/constants';
 import { useSession } from '@/lib/session';
 import type { FillMode } from '@/lib/types';
-import { formatDate } from '@/lib/util';
+import { deviceTimezone, formatDate } from '@/lib/util';
 
 /**
  * `standard` is shown but not selectable: one-at-a-time exclusive offers with
@@ -97,6 +97,9 @@ export default function NewShift() {
         description: description.trim(),
         requirements,
         fillMode,
+        // The poster is almost always at the business, so their zone is the
+        // shift's zone. Recorded now so the times mean something absolute.
+        timezone: deviceTimezone(),
       });
       router.back();
     } catch (e: any) {

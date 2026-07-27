@@ -28,4 +28,6 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Tests
-        run: npx jest --ci
+        # TZ pinned so timezone assertions cannot coincide with the
+        # runner's zone — see jest.setup.js for why that matters.
+        run: TZ=UTC npx jest --ci

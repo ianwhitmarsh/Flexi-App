@@ -96,6 +96,12 @@ export interface Shift {
   requirements: string[];
   status: ShiftStatus;
   fillMode: FillMode;
+  /**
+   * IANA zone the wall-clock times belong to, e.g. `America/Chicago`, captured
+   * from the poster's device. Optional: shifts posted before it was recorded
+   * have none, and are read in the viewer's zone as they always were.
+   */
+  timezone?: string;
   createdAt: string;
   /** Hydrated for deck/match views. */
   business?: Business;

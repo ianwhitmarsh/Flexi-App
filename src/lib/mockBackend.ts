@@ -34,7 +34,7 @@ import type {
   SwipeResult,
   WorkerProfile,
 } from './types';
-import { hasShiftEnded, minutesOfDay, uid } from './util';
+import { hasShiftEnded, shiftEndsAt, shiftStartsAt, uid } from './util';
 
 interface StoredAccount {
   userId: string;
@@ -197,16 +197,18 @@ function seedDB(): DB {
 /** Simple in-process event bus for realtime message subscriptions. */
 type MsgListener = (m: Message) => void;
 /**
- * A shift's window in absolute minutes, mirroring `shift_slot` in
- * db/schema.sql. An end that is not after the start means the shift runs past
- * midnight, so the end belongs to the following day — which is why this returns
- * an absolute span rather than two times to compare within one date.
+ * A shift's window as two absolute instants, in epoch milliseconds.
+ *
+ * Absolute rather than two times within one date because an end that is not
+ * after the start runs past midnight, and because the two shifts being compared
+ * may be in different zones — `shiftStartsAt` and `shiftEndsAt` resolve each
+ * one in its own, so an overlap check works across a state line.
+ *
+ * This used to parse at UTC midnight, which was fine while every comparison was
+ * between two shifts sharing one unstated zone, and is no longer enough.
  */
 function shiftSpan(shift: Shift): [number, number] {
-  const day = Date.parse(`${shift.date}T00:00:00Z`) / 60_000;
-  const start = minutesOfDay(shift.startTime);
-  const end = minutesOfDay(shift.endTime);
-  return [day + start, day + (end > start ? end : end + 24 * 60)];
+  return [shiftStartsAt(shift).getTime(), shiftEndsAt(shift).getTime()];
 }
 
 const listeners = new Map<string, Set<MsgListener>>();
