@@ -452,15 +452,26 @@ begin
     raise exception 'This shift is no longer open';
   end if;
 
-  -- Work that is already over cannot be booked: a booking behind a finished
-  -- shift becomes a payout question once BIG-53 computes from it. `upper` of
-  -- the same `shift_slot` the overlap check uses, so overnight shifts get the
-  -- same treatment here as everywhere else. Compared against `localtimestamp`
-  -- because the slot is built from a local date and wall-clock times.
-  if upper(public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time))
-       <= localtimestamp then
-    raise exception 'This shift has already ended';
-  end if;
+  -- There is deliberately NO "has this shift already ended" check here, and
+  -- adding one is a trap. Please read this before you do.
+  --
+  -- `shift_slot` is built from `date` plus `HH:MM` — `timestamp without time
+  -- zone`, a local wall clock with no zone attached. Comparing it against
+  -- `now()` or `localtimestamp` compares that wall clock to the *database
+  -- server's* clock, which on Supabase is UTC unless someone changes it. An
+  -- 18:00–23:00 shift in Texas would be declared over at 18:00 local, because
+  -- UTC has already reached 23:00. The guard would refuse live shifts rather
+  -- than ended ones.
+  --
+  -- Pinning the server `TimeZone` does not rescue it either: the launch states
+  -- span UTC-4 to UTC-7, so any single zone is wrong for four of the five.
+  -- Nothing stored says which zone a shift is in, so the database genuinely
+  -- cannot answer this question yet — that needs a per-shift timezone, which
+  -- is its own piece of work.
+  --
+  -- Until then the rule lives in `hasShiftEnded`, applied by both backends
+  -- before they get here, where the client's own clock is a reasonable stand-in
+  -- for the shift's local time in a marketplace for local work.
 
   v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time);
 

@@ -582,6 +582,23 @@ export class SupabaseBackend implements Backend {
   }
 
   async acceptOffer(offerId: string): Promise<AcceptOfferResult> {
+    // The ended check has to happen here rather than in `accept_offer`: the
+    // shift's date and times are a local wall clock with no zone stored, so the
+    // database cannot compare them to a real instant. See the note in
+    // db/schema.sql. This costs one extra read before the transaction.
+    const { data: offerRow } = await this.sb
+      .from('offers')
+      .select('shifts(date, start_time, end_time)')
+      .eq('id', offerId)
+      .maybeSingle();
+    const row = (offerRow as any)?.shifts;
+    if (
+      row &&
+      hasShiftEnded({ date: row.date, startTime: row.start_time, endTime: row.end_time })
+    ) {
+      throw new Error('This shift has already ended.');
+    }
+
     // All of the first-accept-wins logic lives in the `accept_offer` function
     // so the shift row lock and the booking insert share one transaction.
     const { data, error } = await this.sb.rpc('accept_offer', { p_offer_id: offerId });
