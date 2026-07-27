@@ -138,7 +138,7 @@ export default function Profile() {
           </Pressable>
 
           <Text style={styles.footer}>
-            ShiftMatch · {isLive ? 'Connected to Supabase' : 'Demo mode (local data)'}
+            Flexi · {isLive ? 'Connected to Supabase' : 'Demo mode (local data)'}
           </Text>
         </View>
       </ScrollView>

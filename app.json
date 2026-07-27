@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ShiftMatch",
-    "slug": "shiftmatch",
+    "name": "Flexi",
+    "slug": "flexi",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "shiftmatch",
+    "scheme": "flexi",
     "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -28,7 +28,7 @@
       [
         "expo-notifications",
         {
-          "color": "#FD297B",
+          "color": "#FF3D8A",
           "defaultChannel": "default"
         }
       ],
@@ -38,7 +38,7 @@
           "backgroundColor": "#0D0F1D",
           "android": {
             "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
+            "imageWidth": 200
           }
         }
       ]

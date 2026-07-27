@@ -1,6 +1,6 @@
 /**
  * In-memory demo backend, persisted to AsyncStorage. Implements the full
- * ShiftMatch flow (auth, profiles, swiping, mutual matches, chat) with no
+ * Flexi flow (auth, profiles, swiping, mutual matches, chat) with no
  * external services, so the app is fully usable out of the box.
  *
  * Demo conventions (documented in the README):
@@ -68,13 +68,38 @@ interface DB {
   pushTokens: Record<string, string[]>;
 }
 
-const DB_KEY = 'shiftmatch.db.v1';
-const SESSION_KEY = 'shiftmatch.session.v1';
+export const DB_KEY = 'flexi.db.v1';
+export const SESSION_KEY = 'flexi.session.v1';
+
+/** Pre-rename keys. Read once on load, then removed. See `adoptLegacyKeys`. */
+const LEGACY_DB_KEY = 'shiftmatch.db.v1';
+const LEGACY_SESSION_KEY = 'shiftmatch.session.v1';
 
 /**
  * Fill in anything a DB persisted by an older build is missing, so upgrading
  * doesn't wipe someone's demo state.
  */
+/**
+ * Move a demo database written under the pre-rename keys across, once.
+ *
+ * Without this the rename reads as data loss: nothing lives at the new key, so
+ * `load` re-seeds and a returning demo user silently loses their account,
+ * shifts, matches and bookings. Only moves when the new key is empty, so it can
+ * never clobber newer data, and clears the old key so it runs at most once.
+ */
+async function adoptLegacyKeys(): Promise<void> {
+  const [legacyDb, currentDb] = await Promise.all([
+    AsyncStorage.getItem(LEGACY_DB_KEY),
+    AsyncStorage.getItem(DB_KEY),
+  ]);
+  if (legacyDb == null || currentDb != null) return;
+
+  const legacySession = await AsyncStorage.getItem(LEGACY_SESSION_KEY);
+  await AsyncStorage.setItem(DB_KEY, legacyDb);
+  if (legacySession != null) await AsyncStorage.setItem(SESSION_KEY, legacySession);
+  await AsyncStorage.multiRemove([LEGACY_DB_KEY, LEGACY_SESSION_KEY]);
+}
+
 function migrate(db: DB): DB {
   db.offerBatches ??= [];
   db.offers ??= [];
@@ -90,7 +115,7 @@ function seedDB(): DB {
   for (const b of SEED_BUSINESSES) {
     accounts[b.id] = {
       userId: b.id,
-      email: `${b.id}@demo.shiftmatch`,
+      email: `${b.id}@demo.flexi`,
       password: 'demo',
       role: 'business',
       business: b,
@@ -102,7 +127,7 @@ function seedDB(): DB {
     const { likedShiftIds, ...worker } = w;
     accounts[w.id] = {
       userId: w.id,
-      email: `${w.id}@demo.shiftmatch`,
+      email: `${w.id}@demo.flexi`,
       password: 'demo',
       role: 'worker',
       worker,
@@ -158,6 +183,7 @@ export class MockBackend implements Backend {
   // ---- persistence ----
   private async load() {
     if (this.loaded) return;
+    await adoptLegacyKeys();
     const [rawDb, rawSession] = await Promise.all([
       AsyncStorage.getItem(DB_KEY),
       AsyncStorage.getItem(SESSION_KEY),

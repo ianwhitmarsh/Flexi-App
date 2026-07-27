@@ -1,4 +1,4 @@
-/** Shared UI primitives for ShiftMatch. */
+/** Shared UI primitives for Flexi. */
 
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
