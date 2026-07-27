@@ -194,29 +194,37 @@ export default function Discover() {
                     </Text>
                   </View>
 
+                  {/*
+                    The two controls are siblings, not nested. Wrapping the row
+                    in a Pressable put the Message button inside it, which React
+                    Native Web renders as a <button> inside a <button> — invalid
+                    HTML, ambiguous focus order, and unreliable for a screen
+                    reader (BIG-83).
+                  */}
                   {rows.map((card) => (
-                    <Pressable
-                      key={`${shift.id}:${card.worker.id}`}
-                      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                      onPress={() => router.push(`/worker/${card.worker.id}`)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${card.worker.fullName}'s profile`}
-                    >
-                      <Avatar name={card.worker.fullName} size={46} />
-                      <View style={styles.rowBody}>
-                        <Text style={styles.name} numberOfLines={1}>
-                          {card.worker.fullName}
-                        </Text>
-                        {card.worker.headline ? (
-                          <Text style={styles.headline} numberOfLines={1}>
-                            {card.worker.headline}
+                    <View key={`${shift.id}:${card.worker.id}`} style={styles.row}>
+                      <Pressable
+                        style={({ pressed }) => [styles.rowMain, pressed && styles.rowPressed]}
+                        onPress={() => router.push(`/worker/${card.worker.id}`)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View ${card.worker.fullName}'s profile`}
+                      >
+                        <Avatar name={card.worker.fullName} size={46} />
+                        <View style={styles.rowBody}>
+                          <Text style={styles.name} numberOfLines={1}>
+                            {card.worker.fullName}
                           </Text>
-                        ) : null}
-                        <Text style={styles.years}>
-                          {card.worker.yearsExperience} yr
-                          {card.worker.yearsExperience === 1 ? '' : 's'} experience
-                        </Text>
-                      </View>
+                          {card.worker.headline ? (
+                            <Text style={styles.headline} numberOfLines={1}>
+                              {card.worker.headline}
+                            </Text>
+                          ) : null}
+                          <Text style={styles.years}>
+                            {card.worker.yearsExperience} yr
+                            {card.worker.yearsExperience === 1 ? '' : 's'} experience
+                          </Text>
+                        </View>
+                      </Pressable>
                       <Pressable
                         onPress={() => messageWorker(card)}
                         style={({ pressed }) => [styles.messageBtn, pressed && styles.pressed]}
@@ -226,7 +234,7 @@ export default function Discover() {
                         <Ionicons name="chatbubble-ellipses" size={16} color={palette.onGradientText} />
                         <Text style={styles.messageText}>Message</Text>
                       </Pressable>
-                    </Pressable>
+                    </View>
                   ))}
 
                   <Button
@@ -313,6 +321,8 @@ const styles = StyleSheet.create({
   groupTitle: { fontSize: 17, fontWeight: '900', color: palette.text, letterSpacing: -0.3 },
   groupMeta: { fontSize: 12.5, color: palette.textMuted, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  /** The profile target: everything except the Message button. */
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 46 },
   rowPressed: { opacity: 0.7 },
   rowBody: { flex: 1, gap: 1 },
   name: { fontSize: 15.5, fontWeight: '800', color: palette.text },

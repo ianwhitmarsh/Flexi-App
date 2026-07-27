@@ -123,8 +123,28 @@ export default function InterestedQueue() {
               const on = selected.includes(worker.id);
               const disabled = !on && atCap;
               return (
-                <Pressable key={worker.id} onPress={() => toggle(worker.id)} disabled={disabled}>
-                  <Card style={[styles.row, on && styles.rowOn, disabled && styles.rowDisabled]}>
+                /*
+                  Card is a plain View, so these three controls are siblings.
+                  Wrapping the whole row in a Pressable would put the profile
+                  button inside it — a <button> in a <button> on web, with the
+                  focus and screen-reader problems that brings (BIG-83).
+
+                  Selecting stays the row's job: this screen exists to pick up
+                  to ten people, so that is the primary action and it keeps the
+                  large target. Opening a profile is its own control.
+                */
+                <Card
+                  key={worker.id}
+                  style={[styles.row, on && styles.rowOn, disabled && styles.rowDisabled]}
+                >
+                  <Pressable
+                    onPress={() => toggle(worker.id)}
+                    disabled={disabled}
+                    style={styles.rowMain}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on, disabled }}
+                    accessibilityLabel={`${on ? 'Deselect' : 'Select'} ${worker.fullName}`}
+                  >
                     <Avatar name={worker.fullName} size={44} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.name} numberOfLines={1}>
@@ -134,28 +154,30 @@ export default function InterestedQueue() {
                         {worker.headline || `${worker.yearsExperience} yrs experience`}
                       </Text>
                     </View>
-                    {/*
-                      Its own control on purpose: tapping the row selects, which
-                      is the primary action on a screen for picking up to ten
-                      people. Opening a profile must not be a stray tap away
-                      from that.
-                    */}
-                    <Pressable
-                      onPress={() => router.push(`/worker/${worker.id}`)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.viewBtn, pressed && styles.viewBtnPressed]}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${worker.fullName}'s profile`}
-                    >
-                      <Ionicons name="person-circle-outline" size={22} color={palette.textMuted} />
-                    </Pressable>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push(`/worker/${worker.id}`)}
+                    style={({ pressed }) => [styles.viewBtn, pressed && styles.viewBtnPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${worker.fullName}'s profile`}
+                  >
+                    <Ionicons name="person-circle-outline" size={22} color={palette.textMuted} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => toggle(worker.id)}
+                    disabled={disabled}
+                    style={styles.checkBtn}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on, disabled }}
+                    accessibilityLabel={`${on ? 'Deselect' : 'Select'} ${worker.fullName}`}
+                  >
                     <Ionicons
                       name={on ? 'checkmark-circle' : 'ellipse-outline'}
                       size={24}
                       color={on ? palette.primary : palette.textFaint}
                     />
-                  </Card>
-                </Pressable>
+                  </Pressable>
+                </Card>
               );
             })}
           </ScrollView>
@@ -213,8 +235,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: 'transparent' },
   rowOn: { borderColor: palette.primary, backgroundColor: palette.tintPrimarySoft },
   rowDisabled: { opacity: 0.45 },
-  viewBtn: { padding: 2 },
+  /** The selection target: avatar and name, the bulk of the row. */
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 },
+  // Both icon controls get a 44pt box so they are reachable by thumb, which the
+  // bare icons were not.
+  viewBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   viewBtnPressed: { opacity: 0.6 },
+  checkBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 16, fontWeight: '800', color: palette.text },
   headline: { fontSize: 13.5, color: palette.textMuted, marginTop: 1 },
   footer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
