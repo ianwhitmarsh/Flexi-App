@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 4,
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: palette.onGradientStrong,
   },
   badgeLike: { left: 22, transform: [{ rotate: '-14deg' }], borderColor: palette.like },
   badgeNope: { right: 22, transform: [{ rotate: '14deg' }], borderColor: palette.pass },

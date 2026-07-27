@@ -43,7 +43,7 @@ export default function MyShifts() {
           <Text style={styles.subtitle}>Manage your open postings</Text>
         </View>
         <Pressable style={styles.addBtn} onPress={() => router.push('/shift/new')}>
-          <Ionicons name="add" size={24} color="#fff" />
+          <Ionicons name="add" size={24} color={palette.onPrimary} />
         </Pressable>
       </View>
 
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
   shiftTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   shiftTitle: { fontSize: 17, fontWeight: '800', color: palette.text, flex: 1 },
   status: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
-  statusOpen: { backgroundColor: '#E3F9ED' },
+  statusOpen: { backgroundColor: palette.tintLike },
   statusClosed: { backgroundColor: palette.chipBg },
   statusText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   statusTextOpen: { color: palette.likeDeep },
@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     alignSelf: 'flex-start',
-    backgroundColor: '#FFE7F0',
+    backgroundColor: palette.tintPrimary,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.pill,

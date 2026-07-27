@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: 'transparent' },
-  rowOn: { borderColor: palette.primary, backgroundColor: '#FFF5F8' },
+  rowOn: { borderColor: palette.primary, backgroundColor: palette.tintPrimarySoft },
   rowDisabled: { opacity: 0.45 },
   name: { fontSize: 16, fontWeight: '800', color: palette.text },
   headline: { fontSize: 13.5, color: palette.textMuted, marginTop: 1 },

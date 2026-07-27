@@ -86,7 +86,7 @@ export default function Profile() {
   return (
     <Screen edges={['top']}>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={palette.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.banner}>
+        <LinearGradient colors={palette.gradient} locations={palette.gradientLocations} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.35 }} style={styles.banner}>
           <Avatar name={displayName} size={84} />
           <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.role}>
@@ -176,8 +176,8 @@ function ChipWrap({ items, title }: { items: string[]; title: string }) {
 const styles = StyleSheet.create({
   body: { paddingBottom: 40 },
   banner: { alignItems: 'center', paddingTop: 24, paddingBottom: 28, gap: 8 },
-  name: { fontSize: 24, fontWeight: '900', color: '#fff', letterSpacing: -0.5 },
-  role: { fontSize: 14.5, color: '#fff', opacity: 0.95, fontWeight: '600' },
+  name: { fontSize: 24, fontWeight: '900', color: palette.onPrimary, letterSpacing: -0.5 },
+  role: { fontSize: 14.5, color: palette.onPrimary, opacity: 0.95, fontWeight: '600' },
   content: { padding: 20, gap: 14, marginTop: -16 },
   card: { gap: 12 },
   detail: { flexDirection: 'row', alignItems: 'center', gap: 10 },

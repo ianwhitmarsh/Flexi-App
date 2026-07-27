@@ -10,57 +10,93 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+/**
+ * The app is dark-only, matching the Flexi marketing site, so both schemes
+ * resolve to the same values — a device set to light must not produce a
+ * half-light UI.
+ */
+const scheme = {
+  text: '#F2F3F8',
+  background: '#0D0F1D',
+  backgroundElement: '#151827',
+  backgroundSelected: '#1B1F31',
+  textSecondary: '#C9CCDD',
+  border: 'rgba(255,255,255,0.07)',
+} as const;
+
 export const Colors = {
-  light: {
-    text: '#1A1D29',
-    background: '#F4F5FA',
-    backgroundElement: '#FFFFFF',
-    backgroundSelected: '#EDEEF5',
-    textSecondary: '#6B7280',
-    border: '#E6E8F0',
-  },
-  dark: {
-    text: '#F4F5FA',
-    background: '#0E0F14',
-    backgroundElement: '#1A1C22',
-    backgroundSelected: '#23262E',
-    textSecondary: '#9CA3AF',
-    border: '#2A2D36',
-  },
+  light: scheme,
+  dark: scheme,
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
-/** Fixed brand palette — used directly across screens. */
+/**
+ * Fixed brand palette — used directly across screens.
+ *
+ * Values come from the Flexi marketing site's CSS custom properties; the
+ * comment beside each accent is the site's token name.
+ */
 export const palette = {
-  primary: '#FD297B',
-  primaryDeep: '#E01F69',
-  /** Tinder-style hero gradient (orange → pink). */
-  gradient: ['#FF7854', '#FD297B'] as const,
-  gradientSoft: ['#FF9A6C', '#FD5B8F'] as const,
+  primary: '#FF3D8A', // --pulse
+  /** --pulse-tint. Reads as the emphasis colour on dark surfaces. */
+  primaryDeep: '#FF7FB2',
+
+  /** The four brand accents, in gradient order. */
+  flare: '#FFA03C',
+  flareTint: '#FFB765',
+  pulse: '#FF3D8A',
+  pulseTint: '#FF7FB2',
+  flux: '#8B5CF6',
+  fluxTint: '#B0A6FA',
+  current: '#3B6BFF',
+
+  /** Signature gradient. Pass `gradientLocations` or the stops spread evenly. */
+  gradient: ['#FFA03C', '#FF3D8A', '#8B5CF6', '#3B6BFF'] as const,
+  gradientLocations: [0, 0.38, 0.68, 1] as const,
+  /** CTA gradient — the site's "Get Flexi" button. */
+  gradientCta: ['#FF3D8A', '#8B5CF6'] as const,
+  gradientSoft: ['#FF7FB2', '#B0A6FA'] as const,
 
   like: '#2DD36F',
-  likeDeep: '#1FB85C',
+  likeDeep: '#4ADE80',
   pass: '#F1414E',
-  passDeep: '#D8313D',
-  superlike: '#3AB4F2',
+  passDeep: '#FF6B75',
+  superlike: '#3B6BFF', // --current
 
-  text: '#1A1D29',
-  textMuted: '#6B7280',
-  textFaint: '#9CA3AF',
+  text: '#F2F3F8',
+  textSecondary: '#C9CCDD',
+  textMuted: '#9BA0B4',
+  textFaint: '#6B7089',
   onPrimary: '#FFFFFF',
 
-  bg: '#F4F5FA',
-  card: '#FFFFFF',
-  cardAlt: '#FAFAFC',
-  border: '#E6E8F0',
-  borderStrong: '#D5D8E4',
+  bg: '#0D0F1D', // --ink
+  card: '#151827', // --slate
+  cardAlt: '#121422', // --surface-alt
+  border: 'rgba(255,255,255,0.07)', // --hairline
+  borderStrong: 'rgba(255,255,255,0.14)', // --hairline-strong
 
-  chipBg: '#F0F1F8',
-  chipText: '#4B5161',
+  chipBg: 'rgba(255,255,255,0.08)',
+  chipText: '#C9CCDD',
+
+  /**
+   * Low-alpha accent washes. On dark these replace the old pale tints
+   * (#FFE7F0, #FFF5F8, #E3F9ED), which read as light blocks.
+   */
+  tintPrimary: 'rgba(255,61,138,0.16)',
+  tintPrimarySoft: 'rgba(255,61,138,0.10)',
+  tintLike: 'rgba(45,211,111,0.15)',
+  /**
+   * Surfaces that sit on top of a gradient rather than on the page. These stay
+   * light on purpose — the gradient is the background there, not `bg`.
+   */
+  onGradientSurface: 'rgba(255,255,255,0.16)',
+  onGradientStrong: 'rgba(255,255,255,0.95)',
+  onGradientBorder: 'rgba(255,255,255,0.7)',
 
   star: '#FBBF24',
-  overlayDark: 'rgba(20,22,30,0.55)',
+  overlayDark: 'rgba(5,6,14,0.72)',
+  shadow: '#000000',
 } as const;
 
 export const Fonts = Platform.select({
@@ -92,28 +128,42 @@ export const radius = {
   pill: 999,
 } as const;
 
+/**
+ * On a #0D0F1D page a soft grey shadow is invisible, so elevation comes
+ * primarily from surface lightness (--slate on --ink) plus `hairline`
+ * borders, the way the site does it. These are deeper and tighter than the
+ * light-mode values they replace, and exist mainly to separate a floating
+ * card from the page rather than to imply height.
+ */
 export const shadow = {
   card: {
-    shadowColor: '#1A1D29',
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    shadowColor: '#000000',
+    shadowOpacity: 0.55,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 10,
   },
   soft: {
-    shadowColor: '#1A1D29',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#000000',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
     elevation: 4,
   },
+  /** Coloured glow — the one place a shadow reads as light on dark. */
   button: {
-    shadowColor: '#FD297B',
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    shadowColor: '#FF3D8A',
+    shadowOpacity: 0.38,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
+} as const;
+
+/** Borders are how surfaces separate on dark. */
+export const hairline = {
+  borderWidth: 1,
+  borderColor: palette.border,
 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
