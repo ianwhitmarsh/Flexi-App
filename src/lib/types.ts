@@ -60,7 +60,13 @@ export interface Business {
   aiProfile?: AiProfile;
 }
 
-export type ShiftStatus = 'open' | 'closed';
+/**
+ * `filled` and `closed` both take a shift out of every deck; they differ in
+ * why. `filled` means a worker accepted an offer and the work is covered;
+ * `closed` means the employer called it off. Downstream policy — no-shows,
+ * show-up rate, timesheet approval — has to tell those apart.
+ */
+export type ShiftStatus = 'open' | 'filled' | 'closed';
 
 /**
  * How the employer wants the shift filled. `standard` is the original

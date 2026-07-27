@@ -118,8 +118,9 @@ describe('sendOffers', () => {
     expect(await backend.listMyOffers()).toHaveLength(1);
   });
 
-  // BIG-64. A successful accept closes the shift (BIG-59), so this is the same
-  // precondition reached the way it actually happens in practice.
+  // BIG-64. A successful accept takes the shift off `open` (BIG-59, and BIG-72
+  // for `filled` specifically), so this is the same precondition reached the
+  // way it actually happens in practice.
   it('rejects a batch for a shift that has already been booked', async () => {
     const { backend, shift, workerA, offerA } = await setupOfferedShift();
 
@@ -383,7 +384,7 @@ describe('declineOffer', () => {
 
 // BIG-59.
 describe('acceptOffer preconditions', () => {
-  it('closes the shift, so other workers stop seeing it in the deck', async () => {
+  it('takes the shift out of the deck, so other workers stop seeing it', async () => {
     const { backend, shift, offerA } = await setupOfferedShift();
 
     // A third worker, never offered the shift and never having swiped it, is
@@ -438,6 +439,65 @@ describe('acceptOffer preconditions', () => {
     // fail — but the friendly answer has to win.
     await backend.signIn(WORKER_B.email, WORKER_B.password);
     expect((await backend.acceptOffer(offerB.id)).status).toBe('filled');
+  });
+});
+
+/**
+ * BIG-72. Staffed and called-off both take a shift off `open`; they are stored
+ * apart because no-show, show-up rate and timesheet policy all need to know
+ * which of the two happened.
+ */
+describe('filled vs closed', () => {
+  const statusOf = async (backend: MockBackend, shiftId: string) =>
+    (await backend.myShifts()).find((s) => s.id === shiftId)?.status;
+
+  it('marks an accepted shift filled, not closed', async () => {
+    const { backend, shift, offerA } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(offerA.id)).status).toBe('accepted');
+
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    expect(await statusOf(backend, shift.id)).toBe('filled');
+  });
+
+  it('leaves a manually closed shift closed', async () => {
+    const { backend, shift } = await setupOfferedShift();
+
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    await backend.closeShift(shift.id);
+
+    expect(await statusOf(backend, shift.id)).toBe('closed');
+  });
+
+  it('never reaches filled except through an accepted offer', async () => {
+    const { backend, shift, offerA, offerB } = await setupOfferedShift();
+
+    // Sending offers does not fill anything.
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    expect(await statusOf(backend, shift.id)).toBe('open');
+
+    // Neither does turning one down.
+    await backend.signIn(WORKER_B.email, WORKER_B.password);
+    await backend.declineOffer(offerB.id);
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    expect(await statusOf(backend, shift.id)).toBe('open');
+
+    // Only an accept does.
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.acceptOffer(offerA.id);
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    expect(await statusOf(backend, shift.id)).toBe('filled');
+  });
+
+  it('keeps a filled shift out of the deck, exactly as closed did', async () => {
+    const { backend, shift, offerA } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.acceptOffer(offerA.id);
+
+    await signUpWorker(backend, WORKER_C, 'Cal Worker');
+    expect((await backend.workerDeck()).map((s) => s.id)).not.toContain(shift.id);
   });
 });
 
