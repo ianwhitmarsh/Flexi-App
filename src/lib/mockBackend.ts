@@ -525,6 +525,30 @@ export class MockBackend implements Backend {
     return cards.sort((a, b) => b.swipedAt.localeCompare(a.swipedAt));
   }
 
+  async getWorkerProfile(workerId: string): Promise<WorkerProfile | null> {
+    await this.load();
+    const acc = this.me();
+    // Workers never browse each other. Only an employer asking about someone
+    // connected to their own shifts gets an answer.
+    if (acc.role !== 'business') return null;
+
+    const myShiftIds = new Set(
+      this.data.shifts.filter((s) => s.businessId === acc.userId).map((s) => s.id),
+    );
+    const connected =
+      this.data.swipes.some(
+        (s) =>
+          s.role === 'worker' &&
+          s.direction !== 'pass' &&
+          s.workerId === workerId &&
+          myShiftIds.has(s.shiftId),
+      ) ||
+      this.data.offers.some((o) => o.workerId === workerId && myShiftIds.has(o.shiftId)) ||
+      this.data.bookings.some((b) => b.workerId === workerId && myShiftIds.has(b.shiftId));
+
+    return connected ? this.data.accounts[workerId]?.worker ?? null : null;
+  }
+
   // ---- race-mode offers ----
   async interestedWorkers(shiftId: string): Promise<InterestedWorker[]> {
     await this.load();

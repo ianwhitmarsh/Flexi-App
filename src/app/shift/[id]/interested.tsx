@@ -134,6 +134,21 @@ export default function InterestedQueue() {
                         {worker.headline || `${worker.yearsExperience} yrs experience`}
                       </Text>
                     </View>
+                    {/*
+                      Its own control on purpose: tapping the row selects, which
+                      is the primary action on a screen for picking up to ten
+                      people. Opening a profile must not be a stray tap away
+                      from that.
+                    */}
+                    <Pressable
+                      onPress={() => router.push(`/worker/${worker.id}`)}
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.viewBtn, pressed && styles.viewBtnPressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${worker.fullName}'s profile`}
+                    >
+                      <Ionicons name="person-circle-outline" size={22} color={palette.textMuted} />
+                    </Pressable>
                     <Ionicons
                       name={on ? 'checkmark-circle' : 'ellipse-outline'}
                       size={24}
@@ -198,6 +213,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: 'transparent' },
   rowOn: { borderColor: palette.primary, backgroundColor: palette.tintPrimarySoft },
   rowDisabled: { opacity: 0.45 },
+  viewBtn: { padding: 2 },
+  viewBtnPressed: { opacity: 0.6 },
   name: { fontSize: 16, fontWeight: '800', color: palette.text },
   headline: { fontSize: 13.5, color: palette.textMuted, marginTop: 1 },
   footer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },

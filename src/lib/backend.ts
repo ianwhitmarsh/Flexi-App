@@ -66,6 +66,17 @@ export interface Backend {
    */
   listInterested(): Promise<InterestedWorker[]>;
 
+  /**
+   * One worker's full profile, for an employer deciding whether to offer them
+   * a shift.
+   *
+   * Only returns a worker the caller has a live connection to: one who showed
+   * interest in, was offered, or is booked on one of the caller's own shifts.
+   * Everyone else — including other workers — gets `null`. This is a directory
+   * of people, so it is deliberately not browsable.
+   */
+  getWorkerProfile(workerId: string): Promise<WorkerProfile | null>;
+
   // ---- race-mode offers ----
   /** Everyone who liked this shift, for the employer's Interested queue. */
   interestedWorkers(shiftId: string): Promise<InterestedWorker[]>;

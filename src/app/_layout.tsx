@@ -71,6 +71,7 @@ function AuthGate() {
       <Stack.Screen name="match/[id]" />
       <Stack.Screen name="shift/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="shift/[id]/interested" />
+      <Stack.Screen name="worker/[id]" />
     </Stack>
   );
 }
