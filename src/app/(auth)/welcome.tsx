@@ -23,8 +23,8 @@ export default function Welcome() {
           />
           <Text style={styles.tagline}>Swipe into your next shift.</Text>
           <Text style={styles.sub}>
-            Local gigs and open shifts, matched to your skills. Workers swipe, businesses swipe
-            back — when you both like, it&apos;s a match.
+            Local gigs and open shifts, picked for your skills. Swipe right on the ones you want —
+            the employer sees your interest and can offer you the shift.
           </Text>
         </View>
 

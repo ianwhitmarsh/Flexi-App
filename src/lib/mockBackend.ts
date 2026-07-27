@@ -100,13 +100,48 @@ async function adoptLegacyKeys(): Promise<void> {
   await AsyncStorage.multiRemove([LEGACY_DB_KEY, LEGACY_SESSION_KEY]);
 }
 
-function migrate(db: DB): DB {
+/**
+ * Returns the migrated database and whether anything actually changed. The
+ * caller has to persist when it did: `backfillThreads` mints ids, so leaving
+ * the result in memory would hand out different thread ids on every load and
+ * break any link into a conversation.
+ */
+function migrate(db: DB): { db: DB; changed: boolean } {
   db.offerBatches ??= [];
   db.offers ??= [];
   db.bookings ??= [];
   db.pushTokens ??= {};
   for (const s of db.shifts) s.fillMode ??= 'standard';
-  return db;
+  const opened = backfillThreads(db);
+  return { db, changed: opened > 0 };
+}
+
+/**
+ * Threads used to open only on a mutual like, so likes saved before that
+ * changed have none — leaving the employer's Message action with nowhere to go.
+ * Open one per outstanding like, mirroring the `on_swipe` trigger. Existing
+ * threads and their messages are untouched. Returns how many it opened.
+ */
+function backfillThreads(db: DB): number {
+  let opened = 0;
+  const existing = new Set(db.matches.map((m) => `${m.shiftId}:${m.workerId}`));
+  for (const swipe of db.swipes) {
+    if (swipe.role !== 'worker' || swipe.direction === 'pass') continue;
+    const key = `${swipe.shiftId}:${swipe.workerId}`;
+    if (existing.has(key)) continue;
+    const shift = db.shifts.find((s) => s.id === swipe.shiftId);
+    if (!shift) continue;
+    existing.add(key);
+    opened += 1;
+    db.matches.push({
+      id: uid('match'),
+      shiftId: shift.id,
+      workerId: swipe.workerId,
+      businessId: shift.businessId,
+      createdAt: swipe.createdAt,
+    });
+  }
+  return opened;
 }
 
 function seedDB(): DB {
@@ -201,10 +236,11 @@ export class MockBackend implements Backend {
       AsyncStorage.getItem(DB_KEY),
       AsyncStorage.getItem(SESSION_KEY),
     ]);
-    this.db = migrate(rawDb ? (JSON.parse(rawDb) as DB) : seedDB());
+    const migrated = migrate(rawDb ? (JSON.parse(rawDb) as DB) : seedDB());
+    this.db = migrated.db;
     this.currentUserId = rawSession || null;
-    if (!rawDb) await this.persist();
     this.loaded = true;
+    if (!rawDb || migrated.changed) await this.persist();
   }
 
   private async persist() {
@@ -372,8 +408,8 @@ export class MockBackend implements Backend {
 
   /**
    * Demo nicety: when a business posts a shift, have a couple of seeded workers
-   * "like" it so the Applicants deck has cards to review right away. (No-op in
-   * the live backend, where applicants come from real worker swipes.)
+   * "like" it so the Interested queue has people in it right away. (No-op in
+   * the live backend, where interest comes from real worker swipes.)
    */
   private seedApplicants(shift: Shift) {
     const seededWorkers = Object.values(this.data.accounts).filter(
@@ -394,6 +430,9 @@ export class MockBackend implements Backend {
         direction: 'like',
         createdAt: new Date().toISOString(),
       });
+      // A like opens a thread, so the employer's Message action works on
+      // seeded interest exactly as it does on real interest.
+      this.openThread(shift, a.userId);
     }
   }
 
@@ -404,12 +443,13 @@ export class MockBackend implements Backend {
   }
 
   // ---- swiping ----
-  private findMatch(shiftId: string, workerId: string): Match | undefined {
+  private findThread(shiftId: string, workerId: string): Match | undefined {
     return this.data.matches.find((m) => m.shiftId === shiftId && m.workerId === workerId);
   }
 
-  private createMatch(shift: Shift, workerId: string): Match {
-    const existing = this.findMatch(shift.id, workerId);
+  /** Mirrors the `on_swipe` trigger: idempotent per (shift, worker). */
+  private openThread(shift: Shift, workerId: string): Match {
+    const existing = this.findThread(shift.id, workerId);
     if (existing) return existing;
     const match: Match = {
       id: uid('match'),
@@ -436,7 +476,7 @@ export class MockBackend implements Backend {
   async swipeShift(shiftId: string, direction: SwipeDirection): Promise<SwipeResult> {
     const acc = this.me();
     const shift = this.data.shifts.find((s) => s.id === shiftId);
-    if (!shift) return { matched: false };
+    if (!shift) return { interested: false };
     this.data.swipes.push({
       id: uid('swipe'),
       swiperId: acc.userId,
@@ -446,64 +486,43 @@ export class MockBackend implements Backend {
       direction,
       createdAt: new Date().toISOString(),
     });
-    let result: SwipeResult = { matched: false };
+    let result: SwipeResult = { interested: false };
     if (direction !== 'pass') {
-      const match = this.createMatch(shift, acc.userId);
-      result = { matched: true, match: this.hydrateMatch(match) };
+      // A like registers interest and opens a thread. Nothing is booked here.
+      const thread = this.openThread(shift, acc.userId);
+      result = { interested: true, thread: this.hydrateMatch(thread) };
     }
     await this.persist();
     return result;
   }
 
-  async businessDeck(): Promise<InterestedWorker[]> {
+  async listInterested(): Promise<InterestedWorker[]> {
     await this.load();
     const meId = this.me().userId;
     const myShiftIds = new Set(
       this.data.shifts.filter((s) => s.businessId === meId && s.status === 'open').map((s) => s.id),
     );
-    const reviewed = new Set(
-      this.data.swipes
-        .filter((s) => s.swiperId === meId && s.role === 'business')
-        .map((s) => `${s.shiftId}:${s.workerId}`),
-    );
+    // One row per worker per shift: a worker who swipes the same shift twice is
+    // still one interested person.
+    const seen = new Set<string>();
     const cards: InterestedWorker[] = [];
     for (const swipe of this.data.swipes) {
       if (swipe.role !== 'worker' || swipe.direction === 'pass') continue;
       if (!myShiftIds.has(swipe.shiftId)) continue;
-      if (reviewed.has(`${swipe.shiftId}:${swipe.workerId}`)) continue;
-      if (this.findMatch(swipe.shiftId, swipe.workerId)) continue;
+      const key = `${swipe.shiftId}:${swipe.workerId}`;
+      if (seen.has(key)) continue;
       const worker = this.data.accounts[swipe.workerId]?.worker;
       const shift = this.data.shifts.find((s) => s.id === swipe.shiftId);
-      if (worker && shift) cards.push({ worker, shift: this.hydrateShift(shift), swipedAt: swipe.createdAt });
+      if (!worker || !shift) continue;
+      seen.add(key);
+      cards.push({
+        worker,
+        shift: this.hydrateShift(shift),
+        swipedAt: swipe.createdAt,
+        threadId: this.findThread(swipe.shiftId, swipe.workerId)?.id,
+      });
     }
-    return cards.sort((a, b) => a.swipedAt.localeCompare(b.swipedAt));
-  }
-
-  async swipeWorker(
-    shiftId: string,
-    workerId: string,
-    direction: SwipeDirection,
-  ): Promise<SwipeResult> {
-    const acc = this.me();
-    this.data.swipes.push({
-      id: uid('swipe'),
-      swiperId: acc.userId,
-      role: 'business',
-      shiftId,
-      workerId,
-      direction,
-      createdAt: new Date().toISOString(),
-    });
-    let result: SwipeResult = { matched: false };
-    if (direction !== 'pass') {
-      const shift = this.data.shifts.find((s) => s.id === shiftId);
-      if (shift) {
-        const match = this.createMatch(shift, workerId);
-        result = { matched: true, match: this.hydrateMatch(match) };
-      }
-    }
-    await this.persist();
-    return result;
+    return cards.sort((a, b) => b.swipedAt.localeCompare(a.swipedAt));
   }
 
   // ---- race-mode offers ----

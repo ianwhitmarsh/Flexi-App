@@ -37,8 +37,8 @@ export default function Matches() {
   return (
     <Screen edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Matches</Text>
-        <Text style={styles.subtitle}>Mutual likes — start the conversation</Text>
+        <Text style={styles.title}>Messages</Text>
+        <Text style={styles.subtitle}>Your conversations about open shifts</Text>
       </View>
 
       {loading ? (
@@ -48,12 +48,12 @@ export default function Matches() {
       ) : matches.length === 0 ? (
         <View style={{ flex: 1, justifyContent: 'center' }}>
           <EmptyState
-            icon="heart-outline"
-            title="No matches yet"
+            icon="chatbubbles-outline"
+            title="No conversations yet"
             subtitle={
               isWorker
-                ? 'Swipe right on shifts you want. When a business likes you back, you can chat here.'
-                : 'Swipe right on workers who applied. When you both like, the conversation opens here.'
+                ? 'Swipe right on a shift you want. That opens a conversation with the employer, right here.'
+                : 'When a worker shows interest in one of your shifts, the conversation opens here.'
             }
           />
         </View>

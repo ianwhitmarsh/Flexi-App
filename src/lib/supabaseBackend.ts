@@ -367,13 +367,13 @@ export class SupabaseBackend implements Backend {
       direction,
     });
     if (error) throw error;
-    if (direction === 'pass') return { matched: false };
-    return this.matchFor(shiftId, id);
+    if (direction === 'pass') return { interested: false };
+    return this.threadFor(shiftId, id);
   }
 
-  async businessDeck(): Promise<InterestedWorker[]> {
+  async listInterested(): Promise<InterestedWorker[]> {
     const id = await this.uid();
-    // Workers who liked one of my open shifts, that I haven't reviewed yet.
+    // Everyone interested in any of my open shifts, newest first.
     const { data, error } = await this.sb
       .from('swipes')
       .select('shift_id, worker_id, created_at, shifts!inner(*, businesses(*)), worker_profiles!swipes_worker_id_fkey(*)')
@@ -381,54 +381,45 @@ export class SupabaseBackend implements Backend {
       .neq('direction', 'pass')
       .eq('shifts.business_id', id)
       .eq('shifts.status', 'open')
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
     if (error) throw error;
-    const { data: myReviews } = await this.sb
-      .from('swipes')
-      .select('shift_id, worker_id')
-      .eq('swiper_id', id)
-      .eq('role', 'business');
-    const reviewed = new Set((myReviews ?? []).map((r) => `${r.shift_id}:${r.worker_id}`));
+
+    // The thread each like opened, so the Message action has a destination.
+    const { data: threads } = await this.sb
+      .from('matches')
+      .select('id, shift_id, worker_id')
+      .eq('business_id', id);
+    const threadId = new Map(
+      (threads ?? []).map((t) => [`${t.shift_id}:${t.worker_id}`, t.id as string]),
+    );
+
+    // One row per worker per shift, keeping the newest like.
+    const seen = new Set<string>();
     const cards: InterestedWorker[] = [];
     for (const row of data ?? []) {
-      if (reviewed.has(`${row.shift_id}:${row.worker_id}`)) continue;
+      const key = `${row.shift_id}:${row.worker_id}`;
+      if (seen.has(key)) continue;
       if (!row.worker_profiles || !row.shifts) continue;
+      seen.add(key);
       cards.push({
         shift: toShift(row.shifts),
         worker: toWorker(row.worker_profiles),
         swipedAt: row.created_at,
+        threadId: threadId.get(key),
       });
     }
     return cards;
   }
 
-  async swipeWorker(
-    shiftId: string,
-    workerId: string,
-    direction: SwipeDirection,
-  ): Promise<SwipeResult> {
-    const id = await this.uid();
-    const { error } = await this.sb.from('swipes').insert({
-      swiper_id: id,
-      role: 'business',
-      shift_id: shiftId,
-      worker_id: workerId,
-      direction,
-    });
-    if (error) throw error;
-    if (direction === 'pass') return { matched: false };
-    return this.matchFor(shiftId, workerId);
-  }
-
-  /** Look up the match the trigger may have just created. */
-  private async matchFor(shiftId: string, workerId: string): Promise<SwipeResult> {
+  /** Look up the conversation thread the `on_swipe` trigger just opened. */
+  private async threadFor(shiftId: string, workerId: string): Promise<SwipeResult> {
     const { data } = await this.sb
       .from('matches')
       .select('*, shifts(*, businesses(*)), worker_profiles(*), businesses(*)')
       .eq('shift_id', shiftId)
       .eq('worker_id', workerId)
       .maybeSingle();
-    return data ? { matched: true, match: toMatch(data) } : { matched: false };
+    return data ? { interested: true, thread: toMatch(data) } : { interested: true };
   }
 
   // ---- race-mode offers ----

@@ -23,7 +23,7 @@ const FILL_MODES: { value: FillMode; label: string; hint: string }[] = [
   {
     value: 'standard',
     label: 'Standard',
-    hint: 'Review everyone who likes the shift and match one by one.',
+    hint: 'Review everyone interested and offer the shift one by one.',
   },
   {
     value: 'race',

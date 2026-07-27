@@ -28,7 +28,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: isBusiness ? 'Applicants' : 'Discover',
+          title: isBusiness ? 'Interested' : 'Discover',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name={isBusiness ? 'people' : 'flame'} size={size} color={color} />
           ),
@@ -45,7 +45,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="matches"
         options={{
-          title: 'Matches',
+          title: 'Messages',
           tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" size={size} color={color} />,
         }}
       />

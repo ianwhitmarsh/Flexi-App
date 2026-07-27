@@ -54,14 +54,17 @@ export interface Backend {
   closeShift(shiftId: string): Promise<void>;
 
   // ---- swiping ----
+  /**
+   * Register a worker's interest in a shift. A like opens a conversation
+   * thread and does nothing else — it never books and never implies the
+   * employer agreed to anything.
+   */
   swipeShift(shiftId: string, direction: SwipeDirection): Promise<SwipeResult>;
-  /** Workers who liked one of my shifts and that I haven't reviewed yet. */
-  businessDeck(): Promise<InterestedWorker[]>;
-  swipeWorker(
-    shiftId: string,
-    workerId: string,
-    direction: SwipeDirection,
-  ): Promise<SwipeResult>;
+  /**
+   * Everyone who is interested in any of my open shifts, newest first. The
+   * employer's Interested queue; callers group it by shift.
+   */
+  listInterested(): Promise<InterestedWorker[]>;
 
   // ---- race-mode offers ----
   /** Everyone who liked this shift, for the employer's Interested queue. */
