@@ -93,6 +93,12 @@ export const palette = {
   onGradientSurface: 'rgba(255,255,255,0.16)',
   onGradientStrong: 'rgba(255,255,255,0.95)',
   onGradientBorder: 'rgba(255,255,255,0.7)',
+  /**
+   * Text on `onGradientStrong`. The accents are tuned for dark surfaces, so
+   * none of them clear 4.5:1 against a near-white chip — this is `--ink`, the
+   * same colour the site puts on its one light surface.
+   */
+  onGradientText: '#0D0F1D',
 
   star: '#FBBF24',
   overlayDark: 'rgba(5,6,14,0.72)',

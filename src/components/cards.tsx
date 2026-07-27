@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
   },
   logoInitials: { color: palette.primary, fontWeight: '900', fontSize: 16 },
   payPill: { backgroundColor: palette.onGradientStrong, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
-  payText: { color: palette.primaryDeep, fontWeight: '900', fontSize: 16 },
+  payText: { color: palette.onGradientText, fontWeight: '900', fontSize: 16 },
   payUnit: { fontSize: 12, fontWeight: '700' },
   title: { color: palette.onPrimary, fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
   company: { color: palette.onPrimary, opacity: 0.92, fontSize: 14.5, fontWeight: '600' },
