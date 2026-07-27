@@ -41,9 +41,18 @@ function projectId(): string | undefined {
  * Ask for notification permission and return this device's Expo push token.
  * Returns null when push isn't available (simulator, web, permission denied,
  * or no EAS project id configured) — callers should treat that as "no push".
+ *
+ * The project-id check comes **before** the permission request on purpose.
+ * Without an id no token can be issued, so asking first would show the system
+ * prompt and then discard the answer. On iOS that prompt is one-shot per
+ * install: a decline there could not be re-asked, and would leave push broken
+ * for a user who never even had it offered to them for a working reason.
  */
 export async function getPushToken(): Promise<string | null> {
   if (Platform.OS === 'web' || !Device.isDevice) return null;
+
+  const id = projectId();
+  if (!id) return null;
 
   const existing = await Notifications.getPermissionsAsync();
   let granted = existing.granted;
@@ -54,9 +63,6 @@ export async function getPushToken(): Promise<string | null> {
     granted = asked.granted;
   }
   if (!granted) return null;
-
-  const id = projectId();
-  if (!id) return null;
 
   try {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId: id });
