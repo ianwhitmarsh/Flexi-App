@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
-import { palette, radius, shadow, Spacing } from '@/constants/theme';
+import { hairline, palette, radius, shadow, Spacing } from '@/constants/theme';
 
 export function Screen({
   children,
@@ -107,9 +107,9 @@ export function Button({
           ]}
         >
           <LinearGradient
-            colors={palette.gradient}
+            colors={palette.gradientCta}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+            end={{ x: 1, y: 0.3 }}
             style={styles.btn}
           >
             {content}
@@ -312,6 +312,9 @@ const styles = StyleSheet.create({
     backgroundColor: palette.card,
     borderRadius: radius.lg,
     padding: Spacing.three,
+    // On dark, the border does most of the separating; the shadow only
+    // lifts the card off the page.
+    ...hairline,
     ...shadow.soft,
   },
   empty: { alignItems: 'center', justifyContent: 'center', padding: Spacing.five, gap: 10 },
@@ -319,7 +322,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#FFE7F0',
+    backgroundColor: palette.tintPrimary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,

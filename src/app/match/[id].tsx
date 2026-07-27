@@ -139,7 +139,7 @@ export default function Chat() {
               disabled={!draft.trim()}
               style={[styles.sendBtn, !draft.trim() && styles.sendDisabled]}
             >
-              <Ionicons name="arrow-up" size={22} color="#fff" />
+              <Ionicons name="arrow-up" size={22} color={palette.onPrimary} />
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   bubbleMine: { backgroundColor: palette.primary, borderBottomRightRadius: 6 },
   bubbleTheirs: { backgroundColor: palette.card, borderBottomLeftRadius: 6 },
   bubbleText: { fontSize: 15, color: palette.text, lineHeight: 20 },
-  bubbleTextMine: { color: '#fff' },
+  bubbleTextMine: { color: palette.onPrimary },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

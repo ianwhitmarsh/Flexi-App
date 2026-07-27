@@ -41,7 +41,7 @@ export function TagInput({
           style={styles.tagInput}
         />
         <Pressable onPress={add} style={styles.addBtn}>
-          <Ionicons name="add" size={22} color="#fff" />
+          <Ionicons name="add" size={22} color={palette.onPrimary} />
         </Pressable>
       </View>
       {tags.length > 0 && (
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'transparent',
   },
-  choiceOn: { backgroundColor: '#FFE7F0', borderColor: palette.primary },
+  choiceOn: { backgroundColor: palette.tintPrimary, borderColor: palette.primary },
   choiceText: { fontSize: 13.5, fontWeight: '600', color: palette.chipText },
   choiceTextOn: { color: palette.primaryDeep },
   resumeBtn: {

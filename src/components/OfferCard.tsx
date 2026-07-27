@@ -24,7 +24,7 @@ export function OfferCard({
     <View style={styles.card}>
       <View style={styles.top}>
         <View style={styles.badge}>
-          <Ionicons name="flash" size={12} color="#fff" />
+          <Ionicons name="flash" size={12} color={palette.onPrimary} />
           <Text style={styles.badgeText}>Offer</Text>
         </View>
         <Text style={styles.pay}>
@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.pill,
   },
-  badgeText: { color: '#fff', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  badgeText: { color: palette.onPrimary, fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
   pay: { fontSize: 18, fontWeight: '900', color: palette.primaryDeep },
   payUnit: { fontSize: 12, fontWeight: '700' },
   title: { fontSize: 19, fontWeight: '900', color: palette.text, marginTop: 6 },

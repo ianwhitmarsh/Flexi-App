@@ -62,11 +62,12 @@ export default function RolePicker() {
             >
               <LinearGradient
                 colors={palette.gradient}
+                locations={palette.gradientLocations}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.cardIcon}
               >
-                <Ionicons name={o.icon} size={26} color="#fff" />
+                <Ionicons name={o.icon} size={26} color={palette.onPrimary} />
               </LinearGradient>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{o.title}</Text>

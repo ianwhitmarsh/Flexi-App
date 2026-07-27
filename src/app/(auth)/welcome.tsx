@@ -12,7 +12,7 @@ export default function Welcome() {
   const { isLive } = useSession();
 
   return (
-    <LinearGradient colors={palette.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fill}>
+    <LinearGradient colors={palette.gradient} locations={palette.gradientLocations} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.35 }} style={styles.fill}>
       <SafeAreaView style={styles.fill}>
         <View style={styles.hero}>
           <View style={styles.logoBadge}>
@@ -57,16 +57,16 @@ const styles = StyleSheet.create({
     width: 84,
     height: 84,
     borderRadius: 24,
-    backgroundColor: '#fff',
+    backgroundColor: palette.onGradientStrong,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
   },
-  wordmark: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -1 },
-  tagline: { fontSize: 19, fontWeight: '700', color: '#fff', opacity: 0.95 },
+  wordmark: { fontSize: 40, fontWeight: '900', color: palette.onPrimary, letterSpacing: -1 },
+  tagline: { fontSize: 19, fontWeight: '700', color: palette.onPrimary, opacity: 0.95 },
   sub: {
     fontSize: 15,
-    color: '#fff',
+    color: palette.onPrimary,
     opacity: 0.9,
     textAlign: 'center',
     lineHeight: 22,
@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
   },
   actions: { paddingHorizontal: 24, paddingBottom: 16, gap: 12 },
   primaryBtn: {
-    backgroundColor: '#fff',
+    backgroundColor: palette.onGradientStrong,
     height: 54,
     borderRadius: radius.pill,
     alignItems: 'center',
@@ -87,9 +87,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.7)',
+    borderColor: palette.onGradientBorder,
   },
-  secondaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  secondaryText: { color: palette.onPrimary, fontSize: 16, fontWeight: '700' },
   pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
-  demoNote: { color: '#fff', opacity: 0.85, fontSize: 13, textAlign: 'center', marginTop: 4 },
+  demoNote: { color: palette.onPrimary, opacity: 0.85, fontSize: 13, textAlign: 'center', marginTop: 4 },
 });

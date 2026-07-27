@@ -32,7 +32,7 @@ function Chips({ items }: { items: string[] }) {
 export function ShiftCard({ shift }: { shift: Shift }) {
   return (
     <View style={styles.card}>
-      <LinearGradient colors={palette.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
+      <LinearGradient colors={palette.gradient} locations={palette.gradientLocations} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.35 }} style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.logo}>
             <Ionicons name="business" size={20} color={palette.primary} />
@@ -74,7 +74,7 @@ export function WorkerCard({ card }: { card: InterestedWorker }) {
   const w = card.worker;
   return (
     <View style={styles.card}>
-      <LinearGradient colors={palette.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
+      <LinearGradient colors={palette.gradient} locations={palette.gradientLocations} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.35 }} style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.logo}>
             <Text style={styles.logoInitials}>
@@ -142,16 +142,16 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: '#fff',
+    backgroundColor: palette.onGradientStrong,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoInitials: { color: palette.primary, fontWeight: '900', fontSize: 16 },
-  payPill: { backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
-  payText: { color: palette.primaryDeep, fontWeight: '900', fontSize: 16 },
+  payPill: { backgroundColor: palette.onGradientStrong, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
+  payText: { color: palette.onGradientText, fontWeight: '900', fontSize: 16 },
   payUnit: { fontSize: 12, fontWeight: '700' },
-  title: { color: '#fff', fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
-  company: { color: '#fff', opacity: 0.92, fontSize: 14.5, fontWeight: '600' },
+  title: { color: palette.onPrimary, fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
+  company: { color: palette.onPrimary, opacity: 0.92, fontSize: 14.5, fontWeight: '600' },
 
   body: { flex: 1 },
   bodyContent: { padding: 20, gap: 10 },
@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#FFE7F0',
+    backgroundColor: palette.tintPrimary,
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
     paddingVertical: 6,
