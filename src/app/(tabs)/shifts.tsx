@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { Button, Card, EmptyState, Screen } from '@/components/ui';
 import { palette, radius } from '@/constants/theme';
 import { useSession } from '@/lib/session';
-import type { Shift } from '@/lib/types';
+import type { Shift, ShiftStatus } from '@/lib/types';
 import { formatDate, formatTimeRange } from '@/lib/util';
 
 export default function MyShifts() {
@@ -68,10 +68,8 @@ export default function MyShifts() {
                 <Text style={styles.shiftTitle} numberOfLines={1}>
                   {s.title}
                 </Text>
-                <View style={[styles.status, s.status === 'open' ? styles.statusOpen : styles.statusClosed]}>
-                  <Text style={[styles.statusText, s.status === 'open' ? styles.statusTextOpen : styles.statusTextClosed]}>
-                    {s.status}
-                  </Text>
+                <View style={[styles.status, STATUS_CHIP[s.status]]}>
+                  <Text style={[styles.statusText, STATUS_TEXT[s.status]]}>{s.status}</Text>
                 </View>
               </View>
               <Text style={styles.pay}>
@@ -142,9 +140,11 @@ const styles = StyleSheet.create({
   shiftTitle: { fontSize: 17, fontWeight: '800', color: palette.text, flex: 1 },
   status: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
   statusOpen: { backgroundColor: palette.tintLike },
+  statusFilled: { backgroundColor: palette.tintPrimary },
   statusClosed: { backgroundColor: palette.chipBg },
   statusText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   statusTextOpen: { color: palette.likeDeep },
+  statusTextFilled: { color: palette.primaryDeep },
   statusTextClosed: { color: palette.textMuted },
   pay: { fontSize: 14.5, fontWeight: '700', color: palette.primaryDeep },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
@@ -165,3 +165,20 @@ const styles = StyleSheet.create({
   closeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   closeText: { fontSize: 13.5, color: palette.textMuted, fontWeight: '700' },
 });
+
+/**
+ * One chip per shift state. `filled` reads as an achievement — the brand tint,
+ * same family as the Fastest fill badge — while `closed` stays neutral grey,
+ * so a staffed shift never looks like one that was called off.
+ */
+const STATUS_CHIP: Record<ShiftStatus, object> = {
+  open: styles.statusOpen,
+  filled: styles.statusFilled,
+  closed: styles.statusClosed,
+};
+
+const STATUS_TEXT: Record<ShiftStatus, object> = {
+  open: styles.statusTextOpen,
+  filled: styles.statusTextFilled,
+  closed: styles.statusTextClosed,
+};

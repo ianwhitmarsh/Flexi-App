@@ -661,7 +661,9 @@ export class MockBackend implements Backend {
 
     // The shift is taken. `workerDeck` selects on 'open', so this is what stops
     // workers who were never offered it from swiping something already gone.
-    shift.status = 'closed';
+    // `filled`, not `closed`: the work is covered rather than called off, and
+    // later policy has to be able to tell those apart.
+    shift.status = 'filled';
 
     await this.persist();
     return { status: 'accepted', booking };

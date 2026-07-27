@@ -61,9 +61,23 @@ create table if not exists public.shifts (
   location      text,
   description   text,
   requirements  text[] not null default '{}',
-  status        text not null default 'open' check (status in ('open', 'closed')),
+  -- `filled` (a worker accepted an offer) and `closed` (the employer called it
+  -- off) both leave every deck; they are kept apart because no-show, show-up
+  -- rate and timesheet policy all need to know which happened.
+  status        text not null default 'open' check (status in ('open', 'filled', 'closed')),
   created_at    timestamptz not null default now()
 );
+
+-- Widen the status check on databases created before `filled` existed: the
+-- `create table if not exists` above is a no-op for them, so the constraint
+-- has to be replaced explicitly. Dropping first keeps this re-runnable.
+--
+-- Historical rows are left alone on purpose. A shift closed before this change
+-- might have been staffed or might have been called off, and nothing stored
+-- distinguishes them — guessing would corrupt the very distinction being added.
+alter table public.shifts drop constraint if exists shifts_status_check;
+alter table public.shifts
+  add constraint shifts_status_check check (status in ('open', 'filled', 'closed'));
 
 create table if not exists public.swipes (
   id          uuid primary key default gen_random_uuid(),
@@ -453,10 +467,12 @@ begin
     set status = 'filled', responded_at = now()
     where shift_id = v_offer.shift_id and id <> v_offer.id and status = 'sent';
 
-  -- The shift is taken. Both decks select on `status = 'open'`, so closing it
-  -- here is what stops workers who were never offered it from swiping a shift
-  -- that is already gone.
-  update public.shifts set status = 'closed' where id = v_offer.shift_id;
+  -- The shift is taken. Both decks select on `status = 'open'`, so moving it
+  -- off `open` here is what stops workers who were never offered it from
+  -- swiping a shift that is already gone. `filled` rather than `closed`: the
+  -- work is covered, not called off, and no-show and show-up-rate policy later
+  -- depends on being able to tell those apart.
+  update public.shifts set status = 'filled' where id = v_offer.shift_id;
 
   return jsonb_build_object('status', 'accepted', 'bookingId', v_booking_id);
 end;
