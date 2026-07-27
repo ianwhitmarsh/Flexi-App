@@ -43,6 +43,23 @@ create table if not exists public.worker_profiles (
   updated_at        timestamptz not null default now()
 );
 
+-- W-2 payroll onboarding state. Flexi is the employer of record, so a worker
+-- must be legally onboarded before they can be booked; `accept_offer` enforces
+-- that below. Existing rows default to `not_started`.
+--
+-- Only a status and an opaque provider id live here. No SSN, bank account or
+-- I-9 document is ever stored by Flexi — the provider's hosted flow collects
+-- those directly from the worker, which is the whole reason for using one.
+do $$ begin
+  alter table public.worker_profiles
+    add column payroll_status text not null default 'not_started'
+    check (payroll_status in ('not_started', 'in_progress', 'blocked', 'ready'));
+exception when duplicate_column then null; end $$;
+
+do $$ begin
+  alter table public.worker_profiles add column payroll_employee_id text;
+exception when duplicate_column then null; end $$;
+
 create table if not exists public.businesses (
   id            uuid primary key references public.profiles (id) on delete cascade,
   company_name  text not null,
@@ -579,6 +596,20 @@ begin
   -- the friendly `filled` answer rather than this.
   if upper(v_slot) <= now() then
     raise exception 'This shift has already ended';
+  end if;
+
+  -- Flexi is the W-2 employer of record, so booking a worker who is not
+  -- legally onboarded is not allowed. Checked here, in the same locked
+  -- transaction as the booking insert, because this is the only place a shift
+  -- becomes committed work.
+  --
+  -- Last of the preconditions, and the order is the point. A worker who lost
+  -- the race is told the shift is gone; a worker looking at a shift that has
+  -- already ended is told that. Neither is sent off to fix a payroll setup
+  -- that would not have won them the shift anyway. Only somebody who could
+  -- otherwise book this shift is asked to finish onboarding.
+  if (select payroll_status from public.worker_profiles where id = v_me) is distinct from 'ready' then
+    return jsonb_build_object('status', 'payroll_not_ready');
   end if;
 
   -- Already booked elsewhere during this window? Compared as ranges, using the

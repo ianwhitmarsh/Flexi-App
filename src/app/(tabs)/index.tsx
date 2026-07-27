@@ -9,6 +9,7 @@ import { OfferCard } from '@/components/OfferCard';
 import { SwipeDeck, type SwipeDir } from '@/components/SwipeDeck';
 import { Avatar, Button, EmptyState, Screen } from '@/components/ui';
 import { palette, radius } from '@/constants/theme';
+import { PAYROLL_NOT_READY_MESSAGE } from '@/lib/payroll';
 import { useSession } from '@/lib/session';
 import type { Booking, InterestedWorker, Match, Offer, Shift } from '@/lib/types';
 import { formatDate, formatTimeRange } from '@/lib/util';
@@ -78,6 +79,13 @@ export default function Discover() {
         Alert.alert("You're booked", `${offer.shift?.title ?? 'The shift'} is yours.`);
       } else if (res.status === 'filled') {
         Alert.alert('This shift was just filled', 'Another worker accepted it first.');
+      } else if (res.status === 'payroll_not_ready') {
+        // Flexi is the W-2 employer, so nobody can be booked before they are
+        // legally onboarded. Point them straight at the step that fixes it.
+        Alert.alert(PAYROLL_NOT_READY_MESSAGE, "You're set up to work in a minute — we just need your tax and payment details before you can be booked.", [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Set up now', onPress: () => router.push('/(tabs)/profile') },
+        ]);
       } else {
         Alert.alert("You're already booked during this time", 'Free up that slot to take this one.');
       }

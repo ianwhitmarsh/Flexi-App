@@ -45,6 +45,12 @@ function shiftInput(over: Partial<ShiftInput> = {}): ShiftInput {
   };
 }
 
+/**
+ * A worker who can actually take a shift. Payroll setup is part of that:
+ * Flexi is the W-2 employer of record, so `acceptOffer` refuses anyone who is
+ * not `ready` (BIG-73). These tests are about offer mechanics, so the fixture
+ * gets that out of the way; `payroll gate` below is what exercises it.
+ */
 async function signUpWorker(backend: MockBackend, creds: typeof WORKER_A, name: string) {
   const session = await backend.signUp(creds.email, creds.password);
   await backend.saveWorkerProfile({
@@ -56,6 +62,8 @@ async function signUpWorker(backend: MockBackend, creds: typeof WORKER_A, name: 
     yearsExperience: 2,
     availability: [],
   });
+  await backend.startPayrollSetup();
+  await backend.refreshPayrollStatus();
   return session.userId;
 }
 

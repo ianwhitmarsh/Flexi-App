@@ -1,5 +1,9 @@
 /** Domain model for Flexi. */
 
+import type { PayrollStatus } from './payroll';
+
+export type { PayrollStatus };
+
 export type Role = 'worker' | 'business';
 export type SwipeDirection = 'like' | 'pass' | 'super';
 
@@ -24,6 +28,15 @@ export interface WorkerProfile {
   avatarUrl?: string;
   resumeUrl?: string;
   resumeName?: string;
+  /**
+   * How far this worker is through W-2 payroll onboarding. Only `ready` may
+   * accept an offer — Flexi is the employer of record, so booking someone who
+   * is not legally onboarded is not a thing the app may do. Optional so rows
+   * written before payroll existed read as `not_started`.
+   */
+  payrollStatus?: PayrollStatus;
+  /** Provider-side employee id. Opaque; never parsed by the app. */
+  payrollEmployeeId?: string;
 }
 
 export type AiTone = 'casual' | 'professional' | 'warm';
@@ -214,11 +227,12 @@ export interface Booking {
 
 /**
  * Outcome of accepting an offer.
- *  - `accepted` — this worker won; `booking` is set.
- *  - `filled`   — another worker got there first.
- *  - `overlap`  — the worker already has a booking during this window.
+ *  - `accepted`           — this worker won; `booking` is set.
+ *  - `filled`             — another worker got there first.
+ *  - `overlap`            — the worker already has a booking during this window.
+ *  - `payroll_not_ready`  — the worker is not legally onboarded for W-2 pay yet.
  */
-export type AcceptOfferStatus = 'accepted' | 'filled' | 'overlap';
+export type AcceptOfferStatus = 'accepted' | 'filled' | 'overlap' | 'payroll_not_ready';
 
 export interface AcceptOfferResult {
   status: AcceptOfferStatus;

@@ -10,15 +10,48 @@ import { BusinessProfileForm } from '@/features/BusinessProfileForm';
 import { EmployerVoiceForm } from '@/features/EmployerVoiceForm';
 import { WorkerProfileForm } from '@/features/WorkerProfileForm';
 import { palette, radius } from '@/constants/theme';
+import type { PayrollStatus } from '@/lib/payroll';
 import { useSession } from '@/lib/session';
+
+/** What each payroll state means to a worker, in their terms. */
+const PAYROLL_COPY: Record<PayrollStatus, string> = {
+  not_started:
+    'Flexi employs you as a W-2 worker, so we need your tax and payment details before you can be booked.',
+  in_progress: 'Almost there — a few details are still outstanding.',
+  blocked: 'Something needs attention before you can be booked. Finish setup to see what.',
+  ready: 'Your tax and payment details are on file. You can accept shifts.',
+};
 
 export default function Profile() {
   const { account, backend, signOut, refresh, isLive } = useSession();
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [editingVoice, setEditingVoice] = useState(false);
+  const [payrollBusy, setPayrollBusy] = useState(false);
   const isWorker = account?.role === 'worker';
   const worker = account?.worker;
+  const payrollStatus: PayrollStatus = worker?.payrollStatus ?? 'not_started';
+  const payrollReady = payrollStatus === 'ready';
+
+  /**
+   * Open the provider's hosted W-4 / I-9 / direct-deposit flow, then re-read
+   * the status. None of that data passes through Flexi. In demo mode the
+   * provider has no real form, so this resolves immediately — the call
+   * sequence is the same one a live provider would need.
+   */
+  const runPayrollSetup = async () => {
+    setPayrollBusy(true);
+    try {
+      const { onboardingUrl } = await backend.startPayrollSetup();
+      if (isLive) await WebBrowser.openBrowserAsync(onboardingUrl);
+      await backend.refreshPayrollStatus();
+      await refresh();
+    } catch (e: any) {
+      Alert.alert('Could not start payroll setup', e?.message ?? 'Something went wrong.');
+    } finally {
+      setPayrollBusy(false);
+    }
+  };
   const business = account?.business;
   const displayName = isWorker ? worker?.fullName ?? 'You' : business?.companyName ?? 'Your business';
 
@@ -130,6 +163,33 @@ export default function Profile() {
 
         <View style={styles.content}>
           {isWorker && worker && (
+            <Card style={[styles.card, styles.payrollCard]}>
+              <View style={styles.payrollTop}>
+                <Ionicons
+                  name={payrollReady ? 'shield-checkmark' : 'shield-outline'}
+                  size={20}
+                  color={payrollReady ? palette.likeDeep : palette.primary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.payrollTitle}>
+                    {payrollReady ? 'Ready to get paid' : 'Get set up to get paid'}
+                  </Text>
+                  <Text style={styles.payrollSub}>{PAYROLL_COPY[payrollStatus]}</Text>
+                </View>
+              </View>
+              {!payrollReady && (
+                <Button
+                  title={payrollStatus === 'in_progress' ? 'Finish setup' : 'Get set up to get paid'}
+                  icon="arrow-forward-circle"
+                  onPress={runPayrollSetup}
+                  loading={payrollBusy}
+                  style={styles.payrollBtn}
+                />
+              )}
+            </Card>
+          )}
+
+          {isWorker && worker && (
             <Card style={styles.card}>
               <Detail icon="location" label="City" value={worker.city || '—'} />
               <Detail icon="briefcase" label="Experience" value={`${worker.yearsExperience} yrs`} />
@@ -228,6 +288,11 @@ const styles = StyleSheet.create({
   role: { fontSize: 14.5, color: palette.onPrimary, opacity: 0.95, fontWeight: '600' },
   content: { padding: 20, gap: 14, marginTop: -16 },
   card: { gap: 12 },
+  payrollCard: { gap: 10 },
+  payrollTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  payrollTitle: { fontSize: 15.5, fontWeight: '800', color: palette.text },
+  payrollSub: { fontSize: 13.5, color: palette.textMuted, lineHeight: 19, marginTop: 2 },
+  payrollBtn: { marginTop: 2 },
   detail: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   detailLabel: { fontSize: 14, color: palette.textMuted, fontWeight: '600', width: 90 },
   detailValue: { fontSize: 14.5, color: palette.text, fontWeight: '700', flex: 1 },

@@ -14,6 +14,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MAX_OFFERS_PER_BATCH, type Backend } from './backend';
+import { getPayroll } from './getPayroll';
+import { PAYROLL_READY, type PayrollStatus } from './payroll';
 import { presentOfferNotificationLocally } from './push';
 import { SEED_BUSINESSES, SEED_SHIFTS, SEED_WORKERS } from './seed';
 import type {
@@ -112,8 +114,19 @@ function migrate(db: DB): { db: DB; changed: boolean } {
   db.bookings ??= [];
   db.pushTokens ??= {};
   for (const s of db.shifts) s.fillMode ??= 'standard';
+  // Sample workers in a database seeded before payroll existed have no status,
+  // which would read as `not_started` and leave the demo unable to book anyone.
+  // Only ids the seed creates are touched: a real signed-up worker keeps their
+  // absent status and goes through setup, which is the behaviour worth showing.
+  let readied = 0;
+  for (const account of Object.values(db.accounts)) {
+    if (account.worker && account.userId.startsWith('wk_') && !account.worker.payrollStatus) {
+      account.worker.payrollStatus = 'ready';
+      readied += 1;
+    }
+  }
   const opened = backfillThreads(db);
-  return { db, changed: opened > 0 };
+  return { db, changed: opened > 0 || readied > 0 };
 }
 
 /**
@@ -165,7 +178,10 @@ function seedDB(): DB {
       email: `${w.id}@demo.flexi`,
       password: 'demo',
       role: 'worker',
-      worker,
+      // Sample workers arrive already payroll-onboarded, so the demo can be
+      // explored end to end. Someone who signs up starts at `not_started` and
+      // has to run the setup step, which is the behaviour worth showing.
+      worker: { ...worker, payrollStatus: 'ready' },
     };
     for (const shiftId of likedShiftIds) {
       swipes.push({
@@ -329,7 +345,15 @@ export class MockBackend implements Backend {
 
   async saveWorkerProfile(data: Omit<WorkerProfile, 'id'>): Promise<WorkerProfile> {
     const acc = this.me();
-    const worker: WorkerProfile = { ...acc.worker, ...data, id: acc.userId };
+    const worker: WorkerProfile = {
+      ...acc.worker,
+      ...data,
+      id: acc.userId,
+      // Editing a profile must never reset payroll progress, and a worker who
+      // has none yet is `not_started` rather than absent.
+      payrollStatus: acc.worker?.payrollStatus ?? data.payrollStatus ?? 'not_started',
+      payrollEmployeeId: acc.worker?.payrollEmployeeId ?? data.payrollEmployeeId,
+    };
     acc.worker = worker;
     acc.role = 'worker';
     await this.persist();
@@ -668,6 +692,13 @@ export class MockBackend implements Backend {
     // Booking work that is already over would put a booking behind a payout.
     if (hasShiftEnded(shift)) throw new Error('This shift has already ended.');
 
+    // Flexi is the W-2 employer of record: an un-onboarded worker cannot be
+    // booked. Checked after the `filled` branch on purpose — a worker who lost
+    // the race is told the shift is gone rather than sent to fix their setup.
+    if (this.me().worker?.payrollStatus !== PAYROLL_READY) {
+      return { status: 'payroll_not_ready' };
+    }
+
     if (this.hasOverlappingBooking(meId, shift)) return { status: 'overlap' };
 
     const booking: Booking = {
@@ -734,6 +765,39 @@ export class MockBackend implements Backend {
       this.data.pushTokens[meId] = [...tokens, token];
       await this.persist();
     }
+  }
+
+  // ---- payroll onboarding ----
+  async startPayrollSetup(): Promise<{ status: PayrollStatus; onboardingUrl: string }> {
+    await this.load();
+    const acc = this.me();
+    const worker = acc.worker;
+    if (!worker) throw new Error('Finish your worker profile first.');
+
+    const payroll = getPayroll();
+    const employee = await payroll.createEmployee({
+      workerId: acc.userId,
+      fullName: worker.fullName,
+      email: acc.email,
+      workState: worker.city.split(',').pop()?.trim(),
+    });
+    const onboardingUrl = await payroll.getOnboardingUrl(employee.employeeId);
+
+    worker.payrollEmployeeId = employee.employeeId;
+    worker.payrollStatus = employee.status;
+    await this.persist();
+    return { status: worker.payrollStatus, onboardingUrl };
+  }
+
+  async refreshPayrollStatus(): Promise<PayrollStatus> {
+    await this.load();
+    const worker = this.me().worker;
+    if (!worker) return 'not_started';
+    if (!worker.payrollEmployeeId) return worker.payrollStatus ?? 'not_started';
+
+    worker.payrollStatus = await getPayroll().getEmployeeStatus(worker.payrollEmployeeId);
+    await this.persist();
+    return worker.payrollStatus;
   }
 
   private hydrateOffer(o: Offer): Offer {
