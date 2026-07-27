@@ -9,7 +9,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { MockBackend } from '../mockBackend';
+import { DB_KEY, MockBackend } from '../mockBackend';
 import { SupabaseBackend } from '../supabaseBackend';
 import type { Backend } from '../backend';
 import type { Shift } from '../types';
@@ -367,9 +367,9 @@ describe('acceptOffer preconditions', () => {
   it('rejects an offer that is not sent', async () => {
     const { backend, offerA } = await setupOfferedShift();
 
-    const db = JSON.parse((await AsyncStorage.getItem('shiftmatch.db.v1'))!);
+    const db = JSON.parse((await AsyncStorage.getItem(DB_KEY))!);
     db.offers.find((o: any) => o.id === offerA.id).status = 'declined';
-    await AsyncStorage.setItem('shiftmatch.db.v1', JSON.stringify(db));
+    await AsyncStorage.setItem(DB_KEY, JSON.stringify(db));
 
     const fresh = new MockBackend();
     await fresh.signIn(WORKER_A.email, WORKER_A.password);

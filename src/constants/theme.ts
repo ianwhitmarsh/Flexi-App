@@ -1,5 +1,5 @@
 /**
- * Design tokens for ShiftMatch.
+ * Design tokens for Flexi.
  *
  * `Colors` powers the themed primitives (light/dark aware). `palette`, `radius`,
  * `shadow`, and `Spacing` are fixed brand tokens used directly by screens — the

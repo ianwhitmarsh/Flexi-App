@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -15,10 +15,12 @@ export default function Welcome() {
     <LinearGradient colors={palette.gradient} locations={palette.gradientLocations} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.35 }} style={styles.fill}>
       <SafeAreaView style={styles.fill}>
         <View style={styles.hero}>
-          <View style={styles.logoBadge}>
-            <Ionicons name="flash" size={40} color={palette.primary} />
-          </View>
-          <Text style={styles.wordmark}>ShiftMatch</Text>
+          <Image
+            source={require('@/../assets/images/flexi-lockup.webp')}
+            style={styles.lockup}
+            contentFit="contain"
+            accessibilityLabel="Flexi"
+          />
           <Text style={styles.tagline}>Swipe into your next shift.</Text>
           <Text style={styles.sub}>
             Local gigs and open shifts, matched to your skills. Workers swipe, businesses swipe
@@ -53,16 +55,17 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   hero: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, gap: 12 },
-  logoBadge: {
-    width: 84,
-    height: 84,
-    borderRadius: 24,
-    backgroundColor: palette.onGradientStrong,
-    alignItems: 'center',
-    justifyContent: 'center',
+  /**
+   * The brand lockup ships without an alpha channel — its background is baked
+   * in as `--ink` — so it is given the same rounded-card treatment the logo
+   * chip had rather than being floated directly on the gradient.
+   */
+  lockup: {
+    width: 232,
+    height: 102,
+    borderRadius: radius.lg,
     marginBottom: 12,
   },
-  wordmark: { fontSize: 40, fontWeight: '900', color: palette.onPrimary, letterSpacing: -1 },
   tagline: { fontSize: 19, fontWeight: '700', color: palette.onPrimary, opacity: 0.95 },
   sub: {
     fontSize: 15,

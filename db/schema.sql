@@ -1,4 +1,4 @@
--- ShiftMatch — Supabase schema, row-level security, and match-making trigger.
+-- Flexi — Supabase schema, row-level security, and match-making trigger.
 -- Paste this into the Supabase SQL editor (one project = one run).
 
 -- ---------------------------------------------------------------------------

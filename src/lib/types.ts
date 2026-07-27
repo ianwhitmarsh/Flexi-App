@@ -1,4 +1,4 @@
-/** Domain model for ShiftMatch. */
+/** Domain model for Flexi. */
 
 export type Role = 'worker' | 'business';
 export type SwipeDirection = 'like' | 'pass' | 'super';

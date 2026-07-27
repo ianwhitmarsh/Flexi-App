@@ -1,4 +1,4 @@
-# ShiftMatch — Tinder for local shift work
+# Flexi — Tinder for local shift work
 
 Swipe-based marketplace that matches local workers with open shifts. Workers
 build a profile and résumé and swipe through nearby shifts; businesses post

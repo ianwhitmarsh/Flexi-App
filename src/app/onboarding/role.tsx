@@ -48,7 +48,7 @@ export default function RolePicker() {
   return (
     <Screen>
       <View style={styles.body}>
-        <Text style={styles.kicker}>Welcome to ShiftMatch</Text>
+        <Text style={styles.kicker}>Welcome to Flexi</Text>
         <Text style={styles.title}>How do you want to use the app?</Text>
         <Text style={styles.sub}>You can switch later from your profile.</Text>
 
