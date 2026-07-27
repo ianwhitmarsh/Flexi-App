@@ -7,7 +7,7 @@ import { Button, Card, EmptyState, Screen } from '@/components/ui';
 import { palette, radius } from '@/constants/theme';
 import { useSession } from '@/lib/session';
 import type { Shift, ShiftStatus } from '@/lib/types';
-import { formatDate, formatTimeRange } from '@/lib/util';
+import { formatDate, formatTimeRange, hasShiftEnded } from '@/lib/util';
 
 export default function MyShifts() {
   const router = useRouter();
@@ -87,7 +87,10 @@ export default function MyShifts() {
                 <Ionicons name="time" size={14} color={palette.textMuted} style={{ marginLeft: 10 }} />
                 <Text style={styles.meta}>{formatTimeRange(s.startTime, s.endTime)}</Text>
               </View>
-              {s.status === 'open' && s.fillMode === 'race' && (
+              {/* Hidden once the shift is over: the queue behind it is empty
+                  by then, so the link would lead nowhere. The card itself
+                  stays — an employer keeps seeing their own history. */}
+              {s.status === 'open' && s.fillMode === 'race' && !hasShiftEnded(s) && (
                 <Pressable
                   onPress={() =>
                     router.push({ pathname: '/shift/[id]/interested', params: { id: s.id } })
