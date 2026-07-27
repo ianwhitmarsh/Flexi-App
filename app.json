@@ -9,6 +9,7 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.flexi.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Flexi uses your location to confirm you're at the job site when you clock in and out of a shift.",
         "NSCameraUsageDescription": "Flexi uses the camera to photograph your ID when you verify your identity to work.",
@@ -22,7 +23,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.flexi.app"
     },
     "web": {
       "output": "static",

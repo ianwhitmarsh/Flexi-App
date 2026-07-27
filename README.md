@@ -1,9 +1,19 @@
-# Flexi — Tinder for local shift work
+# Flexi — Work today. Paid today.
 
-Swipe-based marketplace that matches local workers with open shifts. Workers
-build a profile and résumé and swipe through nearby shifts; businesses post
-shifts and swipe through interested workers. When **both sides like**, it's a
-match and a chat opens.
+Flexi is a same-day-pay marketplace for local shift work. Workers pick up real
+shifts near them on their own schedule, and the money lands the same or next day
+— no payroll cycle, no waiting. Flexi is the W-2 employer of record, so a
+business gets staffed without taking on payroll, workers' comp, or unemployment
+insurance itself.
+
+**What this repo implements today** is the matching layer. Workers build a
+profile and résumé and swipe through nearby shifts; businesses post shifts and
+review the workers who showed interest. Race-mode offers let an employer send
+one shift to several workers at once, where the first acceptance books it and
+every sibling offer is retired in the same transaction.
+
+Time tracking, escrow, and payroll are specified in the backlog but not built
+yet, so nothing in here moves money.
 
 Built with **Expo (React Native)** + **Supabase**. It runs out of the box in a
 **local demo mode** (no setup, seeded data), and flips to a real cloud backend
