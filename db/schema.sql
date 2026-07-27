@@ -228,9 +228,31 @@ create policy "swipes on my shifts" on public.swipes for select using (
 create policy "matches participants" on public.matches for select using (
   auth.uid() = worker_id or auth.uid() = business_id
 );
-create policy "matches participant update" on public.matches for update using (
-  auth.uid() = worker_id or auth.uid() = business_id
-);
+-- A participant may touch their own thread, and only their own thread. The
+-- `with check` is stated rather than left implicit: with it omitted Postgres
+-- reuses `using` as the check, which happens to be the same expression here,
+-- but relying on that makes the next edit to `using` silently change what a row
+-- is allowed to become.
+drop policy if exists "matches participant update" on public.matches;
+create policy "matches participant update" on public.matches for update
+  using (auth.uid() = worker_id or auth.uid() = business_id)
+  with check (auth.uid() = worker_id or auth.uid() = business_id);
+
+-- Which COLUMNS a participant may write is a separate question, and a policy
+-- cannot answer it: `with check` only ever sees the new row, so there is no way
+-- to say "this column must not change" — no `old` to compare against, unlike in
+-- a trigger. Column privileges are the mechanism for that.
+--
+-- `sendMessage` is the only client write to this table anywhere in the app and
+-- it sets exactly these two columns. What identifies the thread — which shift,
+-- which worker, which business — is written once by `on_swipe` and must never
+-- move afterwards: repointing a thread would carry its whole message history to
+-- a different shift, or hand it to a business that was never part of it.
+--
+-- `on_swipe` is unaffected: it is `security definer`, so it runs as the owner
+-- rather than as `authenticated`.
+revoke update on public.matches from authenticated;
+grant update (last_message, last_message_at) on public.matches to authenticated;
 
 -- messages: readable/writable by either participant of the parent match.
 create policy "messages read" on public.messages for select using (
