@@ -84,8 +84,10 @@ alter table public.shifts
 -- this existed have no reliable zone to infer, and the app reads those in the
 -- viewer's zone exactly as it always did. Guessing would be worse than absent.
 --
--- `shift_slot` resolves it into real instants, so a shift's start and end are
--- absolute points in time rather than a wall clock with no zone attached.
+-- Nothing in this file uses it yet. `shift_slot` still returns a naive
+-- `tsrange` and `accept_offer` still has no ended check — see the note there.
+-- BIG-84 is the piece that makes the database use this, and it needs a project
+-- to run against before it can be trusted.
 do $$ begin
   alter table public.shifts add column timezone text;
 exception when duplicate_column then null; end $$;
@@ -331,50 +333,25 @@ create table if not exists public.bookings (
   created_at   timestamptz not null default now()
 );
 
--- The shift's window as a range of real instants, used by the overlap
--- constraint below, by the overlap check in `accept_offer`, and by the ended
--- check there — one definition so they cannot disagree.
+-- The shift's window as a range, used by the overlap constraint below and by
+-- the overlap check in `accept_offer` — one definition so the two cannot
+-- disagree.
 --
 -- `start_time` / `end_time` are free text and nothing validates their order. An
 -- end that is not after the start means the shift runs past midnight, so the
 -- end belongs to the following day: 22:00–02:00 is a four-hour overnight shift,
 -- not an empty one.
---
--- The zone is what makes this a `tstzrange` rather than the `tsrange` it used
--- to be. Without one the range was a wall clock with nothing saying whose, so
--- it could only ever be compared against another shift — never against the
--- clock, and never correctly against a shift in a different zone. `AT TIME
--- ZONE` on a naive timestamp is immutable, so this function stays immutable and
--- DST is handled by the zone rather than by arithmetic here.
---
--- `America/Chicago` stands in when a shift has no zone. Those are the rows
--- posted before the column existed, and this is the choice AC-2 asks to be
--- written down rather than left to be inferred later:
---
---   * Their times were *already* being compared in a single unstated zone, so
---     naming one changes nothing about how they compare with each other. It
---     only makes the assumption legible.
---   * Central covers Texas and Oklahoma, and sits between Eastern (FL, GA) and
---     Mountain (AZ), so the worst case for a mis-zoned legacy row is two hours
---     rather than three.
---   * It is deliberately not `UTC`. UTC would be wrong for all five launch
---     states by four to seven hours and would resurrect exactly the bug this
---     replaces.
---
--- New shifts always carry their own zone, so this fallback shrinks to nothing.
-drop function if exists public.shift_slot(date, text, text);
-
-create or replace function public.shift_slot(p_date date, p_start text, p_end text, p_timezone text)
-returns tstzrange
+create or replace function public.shift_slot(p_date date, p_start text, p_end text)
+returns tsrange
 language sql
 immutable
 as $$
-  select tstzrange(
-    (p_date + p_start::time) at time zone coalesce(p_timezone, 'America/Chicago'),
-    (case when p_end::time > p_start::time
-          then p_date + p_end::time
-          else p_date + 1 + p_end::time
-     end) at time zone coalesce(p_timezone, 'America/Chicago'),
+  select tsrange(
+    p_date + p_start::time,
+    case when p_end::time > p_start::time
+         then p_date + p_end::time
+         else p_date + 1 + p_end::time
+    end,
     '[)'
   );
 $$;
@@ -389,57 +366,26 @@ $$;
 create extension if not exists btree_gist;
 
 do $$ begin
-  alter table public.bookings add column slot tstzrange;
+  alter table public.bookings add column slot tsrange;
 exception when duplicate_column then null; end $$;
 
--- Databases created before the zone existed carry `slot` as a naive `tsrange`.
--- There is no cast from one to the other, and inventing one would mean guessing
--- a zone per row — so the column is retyped and emptied, and the recompute
--- below rebuilds every value from the shift it came from. `slot` is derived
--- data, never entered, so nothing is lost.
---
--- The exclusion constraint has to go first: it indexes the column being
--- retyped. It is recreated below, against the new type.
-do $$ begin
-  if exists (
-    select 1 from information_schema.columns
-     where table_schema = 'public' and table_name = 'bookings'
-       and column_name = 'slot' and udt_name = 'tsrange'
-  ) then
-    alter table public.bookings drop constraint if exists bookings_no_worker_overlap;
-    alter table public.bookings alter column slot drop not null;
-    alter table public.bookings alter column slot type tstzrange using null;
-  end if;
-end $$;
-
--- Recompute rows the column is missing, rows just emptied by the retype above,
--- and rows an earlier definition of `shift_slot` collapsed to the empty range
--- (every overnight shift booked before BIG-62). Empty ranges overlap nothing,
--- so those bookings are invisible to the constraint until they are rebuilt.
+-- Recompute rows the column is missing, and rows an earlier definition of
+-- `shift_slot` collapsed to the empty range (every overnight shift booked
+-- before BIG-62). Empty ranges overlap nothing, so those bookings are invisible
+-- to the constraint until they are rebuilt.
 update public.bookings b
-   set slot = public.shift_slot(s.date, s.start_time, s.end_time, s.timezone)
+   set slot = public.shift_slot(s.date, s.start_time, s.end_time)
   from public.shifts s
  where s.id = b.shift_id and (b.slot is null or isempty(b.slot));
 
 alter table public.bookings alter column slot set not null;
 
--- Guarded by an explicit lookup rather than by trapping `duplicate_object`,
--- which is what this used to do and which never worked. An exclusion constraint
--- builds an index of the same name, and Postgres reports that collision first
--- as `duplicate_table` — so the handler never fired and a second run raised
--- `relation "bookings_no_worker_overlap" already exists`. Nothing had exercised
--- it before: the retype above is the first change that drops this constraint
--- and puts it back.
 do $$ begin
-  if not exists (
-    select 1 from pg_constraint where conname = 'bookings_no_worker_overlap'
-  ) then
-    alter table public.bookings
-      add constraint bookings_no_worker_overlap
-      exclude using gist (worker_id with =, slot with &&)
-      where (status = 'confirmed');
-  end if;
-end $$;
+  alter table public.bookings
+    add constraint bookings_no_worker_overlap
+    exclude using gist (worker_id with =, slot with &&)
+    where (status = 'confirmed');
+exception when duplicate_object then null; end $$;
 
 -- Expo push tokens. A user can have one row per device.
 create table if not exists public.push_tokens (
@@ -494,7 +440,7 @@ declare
   v_shift      public.shifts%rowtype;
   v_booking_id uuid;
   v_overlaps   int;
-  v_slot       tstzrange;
+  v_slot       tsrange;
 begin
   select * into v_offer from public.offers where id = p_offer_id;
   if not found or v_offer.worker_id <> v_me then
@@ -527,43 +473,39 @@ begin
     raise exception 'This shift is no longer open';
   end if;
 
-  v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time, v_shift.timezone);
+  -- There is deliberately NO "has this shift already ended" check here, and
+  -- adding one is a trap. Please read this before you do.
+  --
+  -- `shift_slot` is built from `date` plus `HH:MM` — `timestamp without time
+  -- zone`, a local wall clock with no zone attached. Comparing it against
+  -- `now()` or `localtimestamp` compares that wall clock to the *database
+  -- server's* clock, which on Supabase is UTC unless someone changes it. An
+  -- 18:00–23:00 shift in Texas would be declared over at 18:00 local, because
+  -- UTC has already reached 23:00. The guard would refuse live shifts rather
+  -- than ended ones.
+  --
+  -- Pinning the server `TimeZone` does not rescue it either: the launch states
+  -- span UTC-4 to UTC-7, so any single zone is wrong for four of the five.
+  -- Nothing stored says which zone a shift is in, so the database genuinely
+  -- cannot answer this question yet — that needs a per-shift timezone, which
+  -- is its own piece of work.
+  --
+  -- Until then the rule lives in `hasShiftEnded`, applied by both backends
+  -- before they get here, where the client's own clock is a reasonable stand-in
+  -- for the shift's local time in a marketplace for local work.
 
-  -- Nobody can work a shift that is over, so it must not be bookable.
-  --
-  -- This is the check an earlier attempt got wrong, and the reason it was wrong
-  -- is worth keeping: `shift_slot` used to return a naive wall clock, and
-  -- comparing that to `now()` or `localtimestamp` measured it against the
-  -- *database server's* clock — UTC on Supabase. An 18:00–23:00 shift in Texas
-  -- was declared over at 18:00 local, because UTC had already passed 23:00. It
-  -- refused live shifts rather than ended ones. Pinning the server `TimeZone`
-  -- would not have rescued it either: the launch states span UTC-4 to UTC-7, so
-  -- any single zone is wrong for four of the five, and Arizona skips DST.
-  --
-  -- It is safe now only because `shift_slot` resolves the shift's own zone, so
-  -- `upper(v_slot)` is a real instant and both sides of this comparison are
-  -- `timestamptz`. If that ever reverts to a naive type, this reverts with it.
-  --
-  -- Deliberately after the booking test above, like the other preconditions: a
-  -- worker who lost the race on a shift that has since ended should still get
-  -- the friendly `filled` answer rather than this.
-  if upper(v_slot) <= now() then
-    raise exception 'This shift has already ended';
-  end if;
+  v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time);
 
   -- Already booked elsewhere during this window? Compared as ranges, using the
   -- same `shift_slot` the constraint below hangs on, so the friendly check and
   -- the enforced one always agree. Not restricted to the same calendar date:
-  -- an overnight shift starting on day N runs into day N+1. Because the ranges
-  -- are absolute, this is also right for a worker holding shifts in two
-  -- different zones — in either direction. Wall clocks that look disjoint can
-  -- collide, and identical wall clocks two zones apart do not.
+  -- an overnight shift starting on day N runs into day N+1.
   select count(*) into v_overlaps
   from public.bookings b
   join public.shifts s on s.id = b.shift_id
   where b.worker_id = v_me
     and b.status = 'confirmed'
-    and public.shift_slot(s.date, s.start_time, s.end_time, s.timezone) && v_slot;
+    and public.shift_slot(s.date, s.start_time, s.end_time) && v_slot;
   if v_overlaps > 0 then
     return jsonb_build_object('status', 'overlap');
   end if;
