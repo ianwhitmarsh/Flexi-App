@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoInitials: { color: palette.primary, fontWeight: '900', fontSize: 16 },
+  logoInitials: { color: palette.onGradientText, fontWeight: '900', fontSize: 16 },
   payPill: { backgroundColor: palette.onGradientStrong, paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
   payText: { color: palette.onGradientText, fontWeight: '900', fontSize: 16 },
   payUnit: { fontSize: 12, fontWeight: '700' },
