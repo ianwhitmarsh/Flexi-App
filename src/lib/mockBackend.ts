@@ -142,6 +142,19 @@ const GREETINGS = [
 
 /** Simple in-process event bus for realtime message subscriptions. */
 type MsgListener = (m: Message) => void;
+/**
+ * A shift's window in absolute minutes, mirroring `shift_slot` in
+ * db/schema.sql. An end that is not after the start means the shift runs past
+ * midnight, so the end belongs to the following day — which is why this returns
+ * an absolute span rather than two times to compare within one date.
+ */
+function shiftSpan(shift: Shift): [number, number] {
+  const day = Date.parse(`${shift.date}T00:00:00Z`) / 60_000;
+  const start = minutesOfDay(shift.startTime);
+  const end = minutesOfDay(shift.endTime);
+  return [day + start, day + (end > start ? end : end + 24 * 60)];
+}
+
 const listeners = new Map<string, Set<MsgListener>>();
 function emit(matchId: string, m: Message) {
   listeners.get(matchId)?.forEach((cb) => cb(m));
@@ -629,13 +642,13 @@ export class MockBackend implements Backend {
 
   /** True when the worker already has a confirmed booking clashing with `shift`. */
   private hasOverlappingBooking(workerId: string, shift: Shift): boolean {
-    const start = minutesOfDay(shift.startTime);
-    const end = minutesOfDay(shift.endTime);
+    const [start, end] = shiftSpan(shift);
     return this.data.bookings.some((b) => {
       if (b.workerId !== workerId || b.status !== 'confirmed') return false;
       const other = this.data.shifts.find((s) => s.id === b.shiftId);
-      if (!other || other.date !== shift.date) return false;
-      return minutesOfDay(other.startTime) < end && minutesOfDay(other.endTime) > start;
+      if (!other) return false;
+      const [otherStart, otherEnd] = shiftSpan(other);
+      return otherStart < end && otherEnd > start;
     });
   }
 
