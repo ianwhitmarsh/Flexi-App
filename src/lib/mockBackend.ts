@@ -194,12 +194,6 @@ function seedDB(): DB {
   };
 }
 
-const GREETINGS = [
-  "Hi! Thanks for the interest — are you still free for this shift?",
-  "Hey, your profile looks great. Can you confirm your availability?",
-  "Thanks for swiping! Want to lock this one in?",
-];
-
 /** Simple in-process event bus for realtime message subscriptions. */
 type MsgListener = (m: Message) => void;
 /**
@@ -459,17 +453,10 @@ export class MockBackend implements Backend {
       createdAt: new Date().toISOString(),
     };
     this.data.matches.unshift(match);
-    // Seed a friendly opener from the business so the chat isn't empty.
-    const greeting: Message = {
-      id: uid('msg'),
-      matchId: match.id,
-      senderId: shift.businessId,
-      body: GREETINGS[this.data.matches.length % GREETINGS.length],
-      createdAt: new Date().toISOString(),
-    };
-    this.data.messages.push(greeting);
-    match.lastMessage = greeting.body;
-    match.lastMessageAt = greeting.createdAt;
+    // Nothing is written into the thread. It used to seed a greeting with
+    // `senderId` set to the business, which meant the worker read a message
+    // the employer never wrote and never saw. The employer gets a draft
+    // opener in the thread instead, and only they can see it (BIG-79).
     return match;
   }
 
@@ -799,5 +786,15 @@ export class MockBackend implements Backend {
     return () => {
       set?.delete(onMessage);
     };
+  }
+
+  async dismissOpenerDraft(matchId: string): Promise<void> {
+    await this.load();
+    const meId = this.me().userId;
+    const thread = this.data.matches.find((m) => m.id === matchId);
+    // Only the employer is ever offered the draft, so only they can discard it.
+    if (!thread || thread.businessId !== meId) return;
+    thread.openerDismissedAt = new Date().toISOString();
+    await this.persist();
   }
 }

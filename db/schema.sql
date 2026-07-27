@@ -105,6 +105,14 @@ create table if not exists public.matches (
   unique (shift_id, worker_id)
 );
 
+-- When the employer discarded the suggested opener for this thread. The draft
+-- is derived from their voice profile and never stored, so this is the only
+-- state it needs. Nullable: null means "not decided yet", which is what makes
+-- the draft appear.
+do $$ begin
+  alter table public.matches add column opener_dismissed_at timestamptz;
+exception when duplicate_column then null; end $$;
+
 create table if not exists public.messages (
   id          uuid primary key default gen_random_uuid(),
   match_id    uuid not null references public.matches (id) on delete cascade,
@@ -252,7 +260,7 @@ create policy "matches participant update" on public.matches for update
 -- `on_swipe` is unaffected: it is `security definer`, so it runs as the owner
 -- rather than as `authenticated`.
 revoke update on public.matches from authenticated;
-grant update (last_message, last_message_at) on public.matches to authenticated;
+grant update (last_message, last_message_at, opener_dismissed_at) on public.matches to authenticated;
 
 -- messages: readable/writable by either participant of the parent match.
 create policy "messages read" on public.messages for select using (

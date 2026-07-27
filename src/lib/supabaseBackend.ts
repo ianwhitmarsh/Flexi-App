@@ -115,6 +115,7 @@ function toMatch(row: any): Match {
     createdAt: row.created_at,
     lastMessage: row.last_message ?? undefined,
     lastMessageAt: row.last_message_at ?? undefined,
+    openerDismissedAt: row.opener_dismissed_at ?? undefined,
     shift: row.shifts ? toShift(row.shifts) : undefined,
     worker: row.worker_profiles ? toWorker(row.worker_profiles) : undefined,
     business: row.businesses ? toBusiness(row.businesses) : undefined,
@@ -678,5 +679,16 @@ export class SupabaseBackend implements Backend {
     return () => {
       this.sb.removeChannel(channel);
     };
+  }
+
+  async dismissOpenerDraft(matchId: string): Promise<void> {
+    const id = await this.uid();
+    // Scoped to the employer's own thread: only they are offered the draft.
+    const { error } = await this.sb
+      .from('matches')
+      .update({ opener_dismissed_at: new Date().toISOString() })
+      .eq('id', matchId)
+      .eq('business_id', id);
+    if (error) throw error;
   }
 }
