@@ -85,6 +85,7 @@ function toBusiness(row: any): Business {
     about: row.about ?? '',
     contactName: row.contact_name ?? '',
     logoUrl: row.logo_url ?? undefined,
+    aiProfile: row.ai_profile ?? {},
   };
 }
 
@@ -256,6 +257,8 @@ export class SupabaseBackend implements Backend {
       about: data.about,
       contact_name: data.contactName,
       logo_url: data.logoUrl ?? null,
+      // `{}` rather than null when skipped, matching the column default.
+      ai_profile: data.aiProfile ?? {},
     };
     const { data: saved, error } = await this.sb
       .from('businesses')

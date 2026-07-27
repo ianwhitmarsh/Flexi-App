@@ -6,6 +6,7 @@ import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'r
 
 import { Avatar, Button, Card, Screen } from '@/components/ui';
 import { BusinessProfileForm } from '@/features/BusinessProfileForm';
+import { EmployerVoiceForm } from '@/features/EmployerVoiceForm';
 import { WorkerProfileForm } from '@/features/WorkerProfileForm';
 import { palette, radius } from '@/constants/theme';
 import { useSession } from '@/lib/session';
@@ -13,6 +14,7 @@ import { useSession } from '@/lib/session';
 export default function Profile() {
   const { account, backend, signOut, refresh, isLive } = useSession();
   const [editing, setEditing] = useState(false);
+  const [editingVoice, setEditingVoice] = useState(false);
   const isWorker = account?.role === 'worker';
   const worker = account?.worker;
   const business = account?.business;
@@ -48,6 +50,29 @@ export default function Profile() {
       ],
     );
   };
+
+  if (editingVoice && business) {
+    return (
+      <Screen edges={['top']}>
+        <View style={styles.editHeader}>
+          <Text style={styles.title}>Your voice</Text>
+          <Pressable onPress={() => setEditingVoice(false)} hitSlop={8}>
+            <Text style={styles.cancel}>Cancel</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={styles.editBody} keyboardShouldPersistTaps="handled">
+          <EmployerVoiceForm
+            business={business}
+            ctaLabel="Save changes"
+            onSaved={() => {
+              refresh();
+              setEditingVoice(false);
+            }}
+          />
+        </ScrollView>
+      </Screen>
+    );
+  }
 
   if (editing) {
     return (
@@ -125,6 +150,14 @@ export default function Profile() {
           )}
 
           <Button title="Edit profile" variant="secondary" icon="create-outline" onPress={() => setEditing(true)} />
+          {!isWorker && business && (
+            <Button
+              title="Edit your voice"
+              variant="secondary"
+              icon="chatbubble-ellipses-outline"
+              onPress={() => setEditingVoice(true)}
+            />
+          )}
           <Button
             title={isWorker ? 'Switch to hiring' : 'Switch to finding shifts'}
             variant="ghost"

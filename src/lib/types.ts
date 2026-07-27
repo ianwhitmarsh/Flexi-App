@@ -26,6 +26,27 @@ export interface WorkerProfile {
   resumeName?: string;
 }
 
+export type AiTone = 'casual' | 'professional' | 'warm';
+
+export interface AiFaq {
+  question: string;
+  answer: string;
+}
+
+/**
+ * Structured context about how a business talks and what it expects, captured
+ * once during onboarding. It is prompt material for the opener Flexi will send
+ * on the employer's behalf — nothing here is sent to a model yet.
+ */
+export interface AiProfile {
+  tone?: AiTone;
+  dressCode?: string;
+  arrivalInstructions?: string;
+  parkingNotes?: string;
+  whatMakesUsDifferent?: string;
+  faqs?: AiFaq[];
+}
+
 export interface Business {
   id: string;
   companyName: string;
@@ -35,6 +56,8 @@ export interface Business {
   about: string;
   contactName: string;
   logoUrl?: string;
+  /** Always an object once saved — empty rather than absent when skipped. */
+  aiProfile?: AiProfile;
 }
 
 export type ShiftStatus = 'open' | 'closed';

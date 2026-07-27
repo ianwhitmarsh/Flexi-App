@@ -306,7 +306,15 @@ export class MockBackend implements Backend {
 
   async saveBusinessProfile(data: Omit<Business, 'id'>): Promise<Business> {
     const acc = this.me();
-    const business: Business = { ...acc.business, ...data, id: acc.userId };
+    const business: Business = {
+      ...acc.business,
+      ...data,
+      id: acc.userId,
+      // `{}` rather than undefined when the voice step is skipped, so readers
+      // never have to tell "skipped" from "not asked yet". Matches the column
+      // default in db/schema.sql.
+      aiProfile: data.aiProfile ?? acc.business?.aiProfile ?? {},
+    };
     acc.business = business;
     acc.role = 'business';
     await this.persist();

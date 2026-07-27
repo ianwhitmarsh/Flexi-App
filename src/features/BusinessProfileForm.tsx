@@ -18,7 +18,8 @@ export function BusinessProfileForm({
 }: {
   initial?: Business;
   ctaLabel?: string;
-  onSaved: () => void;
+  /** Receives the saved record, so a caller can chain a second step. */
+  onSaved: (business: Business) => void;
 }) {
   const { backend } = useSession();
   const [companyName, setCompanyName] = useState(initial?.companyName ?? '');
@@ -35,14 +36,15 @@ export function BusinessProfileForm({
     if (!city.trim()) return setError('Please add your city.');
     setBusy(true);
     try {
-      await backend.saveBusinessProfile({
+      const saved = await backend.saveBusinessProfile({
         companyName: companyName.trim(),
         category,
         city: city.trim(),
         contactName: contactName.trim(),
         about: about.trim(),
+        aiProfile: initial?.aiProfile,
       });
-      onSaved();
+      onSaved(saved);
     } catch (e: any) {
       setError(e?.message ?? 'Could not save your business profile.');
     } finally {
