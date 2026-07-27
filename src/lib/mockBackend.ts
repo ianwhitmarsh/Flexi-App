@@ -13,14 +13,19 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import type { Backend } from './backend';
+import { MAX_OFFERS_PER_BATCH, type Backend } from './backend';
+import { presentOfferNotificationLocally } from './push';
 import { SEED_BUSINESSES, SEED_SHIFTS, SEED_WORKERS } from './seed';
 import type {
+  AcceptOfferResult,
   Account,
+  Booking,
   Business,
   InterestedWorker,
   Match,
   Message,
+  Offer,
+  OfferBatch,
   ResumeFile,
   Role,
   Session,
@@ -29,7 +34,7 @@ import type {
   SwipeResult,
   WorkerProfile,
 } from './types';
-import { uid } from './util';
+import { minutesOfDay, uid } from './util';
 
 interface StoredAccount {
   userId: string;
@@ -57,10 +62,27 @@ interface DB {
   swipes: Swipe[];
   matches: Match[];
   messages: Message[];
+  offerBatches: OfferBatch[];
+  offers: Offer[];
+  bookings: Booking[];
+  pushTokens: Record<string, string[]>;
 }
 
 const DB_KEY = 'shiftmatch.db.v1';
 const SESSION_KEY = 'shiftmatch.session.v1';
+
+/**
+ * Fill in anything a DB persisted by an older build is missing, so upgrading
+ * doesn't wipe someone's demo state.
+ */
+function migrate(db: DB): DB {
+  db.offerBatches ??= [];
+  db.offers ??= [];
+  db.bookings ??= [];
+  db.pushTokens ??= {};
+  for (const s of db.shifts) s.fillMode ??= 'standard';
+  return db;
+}
 
 function seedDB(): DB {
   const accounts: Record<string, StoredAccount> = {};
@@ -105,6 +127,10 @@ function seedDB(): DB {
     swipes,
     matches: [],
     messages: [],
+    offerBatches: [],
+    offers: [],
+    bookings: [],
+    pushTokens: {},
   };
 }
 
@@ -126,6 +152,8 @@ export class MockBackend implements Backend {
   private db: DB | null = null;
   private currentUserId: string | null = null;
   private loaded = false;
+  /** Serialises offer accepts, standing in for the live backend's row lock. */
+  private acceptQueue: Promise<unknown> = Promise.resolve();
 
   // ---- persistence ----
   private async load() {
@@ -134,7 +162,7 @@ export class MockBackend implements Backend {
       AsyncStorage.getItem(DB_KEY),
       AsyncStorage.getItem(SESSION_KEY),
     ]);
-    this.db = rawDb ? (JSON.parse(rawDb) as DB) : seedDB();
+    this.db = migrate(rawDb ? (JSON.parse(rawDb) as DB) : seedDB());
     this.currentUserId = rawSession || null;
     if (!rawDb) await this.persist();
     this.loaded = true;
@@ -429,6 +457,176 @@ export class MockBackend implements Backend {
     }
     await this.persist();
     return result;
+  }
+
+  // ---- race-mode offers ----
+  async interestedWorkers(shiftId: string): Promise<InterestedWorker[]> {
+    await this.load();
+    const shift = this.data.shifts.find((s) => s.id === shiftId);
+    if (!shift || shift.businessId !== this.me().userId) return [];
+    const hydrated = this.hydrateShift(shift);
+    const seen = new Set<string>();
+    const cards: InterestedWorker[] = [];
+    for (const swipe of this.data.swipes) {
+      if (swipe.role !== 'worker' || swipe.direction === 'pass') continue;
+      if (swipe.shiftId !== shiftId || seen.has(swipe.workerId)) continue;
+      const worker = this.data.accounts[swipe.workerId]?.worker;
+      if (!worker) continue;
+      seen.add(swipe.workerId);
+      cards.push({ worker, shift: hydrated, swipedAt: swipe.createdAt });
+    }
+    return cards.sort((a, b) => a.swipedAt.localeCompare(b.swipedAt));
+  }
+
+  async sendOffers(shiftId: string, workerIds: string[]): Promise<OfferBatch> {
+    await this.load();
+    const acc = this.me();
+    const shift = this.data.shifts.find((s) => s.id === shiftId);
+    if (!shift) throw new Error('Shift not found.');
+    if (shift.businessId !== acc.userId) throw new Error('That is not your shift.');
+
+    const unique = [...new Set(workerIds)];
+    if (unique.length === 0) throw new Error('Pick at least one worker.');
+    if (unique.length > MAX_OFFERS_PER_BATCH) {
+      throw new Error(`You can offer a shift to at most ${MAX_OFFERS_PER_BATCH} workers at once.`);
+    }
+
+    const now = new Date().toISOString();
+    const batch: OfferBatch = {
+      id: uid('batch'),
+      shiftId,
+      businessId: acc.userId,
+      createdAt: now,
+      offers: unique.map((workerId) => ({
+        id: uid('offer'),
+        batchId: '',
+        shiftId,
+        workerId,
+        status: 'sent' as const,
+        createdAt: now,
+      })),
+    };
+    for (const o of batch.offers) o.batchId = batch.id;
+
+    this.data.offerBatches.unshift(batch);
+    this.data.offers.unshift(...batch.offers);
+    await this.persist();
+
+    // Demo: every "worker" is this same device, so notify locally (AC-3).
+    await presentOfferNotificationLocally(this.hydrateShift(shift));
+
+    return { ...batch, offers: batch.offers.map((o) => this.hydrateOffer(o)) };
+  }
+
+  async listMyOffers(): Promise<Offer[]> {
+    await this.load();
+    const meId = this.me().userId;
+    return this.data.offers
+      .filter((o) => o.workerId === meId && o.status === 'sent')
+      .map((o) => this.hydrateOffer(o))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /**
+   * Deliberately not `async`: the caller's identity is captured synchronously,
+   * so two accepts fired back to back from different sessions each keep their
+   * own worker. The queue then runs them one at a time, standing in for the
+   * live backend's `select ... for update` on the shift row.
+   */
+  acceptOffer(offerId: string): Promise<AcceptOfferResult> {
+    const meId = this.currentUserId;
+    if (!meId) return Promise.reject(new Error('Not signed in'));
+    const run = this.acceptQueue.then(
+      () => this.acceptOfferLocked(offerId, meId),
+      () => this.acceptOfferLocked(offerId, meId),
+    );
+    this.acceptQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async acceptOfferLocked(offerId: string, meId: string): Promise<AcceptOfferResult> {
+    await this.load();
+    const offer = this.data.offers.find((o) => o.id === offerId);
+    if (!offer || offer.workerId !== meId) throw new Error('Offer not found.');
+    const shift = this.data.shifts.find((s) => s.id === offer.shiftId);
+    if (!shift) throw new Error('Shift not found.');
+
+    const now = new Date().toISOString();
+
+    // Someone already won this shift.
+    if (this.data.bookings.some((b) => b.shiftId === offer.shiftId)) {
+      for (const o of this.data.offers) {
+        if (o.shiftId === offer.shiftId && o.status === 'sent') {
+          o.status = 'filled';
+          o.respondedAt = now;
+        }
+      }
+      await this.persist();
+      return { status: 'filled' };
+    }
+
+    if (this.hasOverlappingBooking(meId, shift)) return { status: 'overlap' };
+
+    const booking: Booking = {
+      id: uid('booking'),
+      shiftId: offer.shiftId,
+      workerId: meId,
+      businessId: shift.businessId,
+      offerId: offer.id,
+      status: 'confirmed',
+      createdAt: now,
+    };
+    this.data.bookings.unshift(booking);
+
+    offer.status = 'accepted';
+    offer.respondedAt = now;
+    for (const o of this.data.offers) {
+      if (o.shiftId === offer.shiftId && o.id !== offer.id && o.status === 'sent') {
+        o.status = 'filled';
+        o.respondedAt = now;
+      }
+    }
+    await this.persist();
+    return { status: 'accepted', booking };
+  }
+
+  async listMyBookings(): Promise<Booking[]> {
+    await this.load();
+    const meId = this.me().userId;
+    return this.data.bookings
+      .filter((b) => b.workerId === meId && b.status === 'confirmed')
+      .map((b) => {
+        const shift = this.data.shifts.find((s) => s.id === b.shiftId);
+        return { ...b, shift: shift ? this.hydrateShift(shift) : undefined };
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async registerPushToken(token: string): Promise<void> {
+    await this.load();
+    const meId = this.me().userId;
+    const tokens = this.data.pushTokens[meId] ?? [];
+    if (!tokens.includes(token)) {
+      this.data.pushTokens[meId] = [...tokens, token];
+      await this.persist();
+    }
+  }
+
+  private hydrateOffer(o: Offer): Offer {
+    const shift = this.data.shifts.find((s) => s.id === o.shiftId);
+    return { ...o, shift: shift ? this.hydrateShift(shift) : undefined };
+  }
+
+  /** True when the worker already has a confirmed booking clashing with `shift`. */
+  private hasOverlappingBooking(workerId: string, shift: Shift): boolean {
+    const start = minutesOfDay(shift.startTime);
+    const end = minutesOfDay(shift.endTime);
+    return this.data.bookings.some((b) => {
+      if (b.workerId !== workerId || b.status !== 'confirmed') return false;
+      const other = this.data.shifts.find((s) => s.id === b.shiftId);
+      if (!other || other.date !== shift.date) return false;
+      return minutesOfDay(other.startTime) < end && minutesOfDay(other.endTime) > start;
+    });
   }
 
   // ---- matches + chat ----

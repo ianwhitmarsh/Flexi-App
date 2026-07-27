@@ -32,6 +32,15 @@ function prettyTime(t: string): string {
   return `${h}:${m ?? '00'} ${ampm}`;
 }
 
+/**
+ * "HH:MM" (24h) as minutes past midnight. Use this rather than comparing the
+ * strings directly — "9:00" sorts after "10:00" but is earlier in the day.
+ */
+export function minutesOfDay(t: string): number {
+  const [h, m] = t.split(':');
+  return Number(h) * 60 + Number(m ?? 0);
+}
+
 export function timeAgo(iso?: string): string {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();

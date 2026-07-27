@@ -217,6 +217,201 @@ create policy "messages send" on public.messages for insert with check (
 );
 
 -- ---------------------------------------------------------------------------
+-- Race-mode offers: an employer sends one shift to several interested workers
+-- and the first acceptance wins. See `accept_offer` below for the locking.
+-- ---------------------------------------------------------------------------
+
+-- 'standard' keeps the existing swipe-and-match behaviour; 'race' opts the
+-- shift into batch offers.
+do $$ begin
+  alter table public.shifts
+    add column fill_mode text not null default 'standard'
+    check (fill_mode in ('standard', 'race'));
+exception when duplicate_column then null; end $$;
+
+create table if not exists public.offer_batches (
+  id           uuid primary key default gen_random_uuid(),
+  shift_id     uuid not null references public.shifts (id) on delete cascade,
+  business_id  uuid not null references public.profiles (id) on delete cascade,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.offers (
+  id            uuid primary key default gen_random_uuid(),
+  batch_id      uuid not null references public.offer_batches (id) on delete cascade,
+  shift_id      uuid not null references public.shifts (id) on delete cascade,
+  worker_id     uuid not null references public.profiles (id) on delete cascade,
+  status        text not null default 'sent'
+                check (status in ('sent', 'accepted', 'filled', 'declined')),
+  created_at    timestamptz not null default now(),
+  responded_at  timestamptz,
+  unique (batch_id, worker_id)
+);
+
+-- One booking per shift. This unique constraint is the last line of defence
+-- against a double-booking if two accepts somehow slip past the row lock.
+create table if not exists public.bookings (
+  id           uuid primary key default gen_random_uuid(),
+  shift_id     uuid not null unique references public.shifts (id) on delete cascade,
+  worker_id    uuid not null references public.profiles (id) on delete cascade,
+  business_id  uuid not null references public.profiles (id) on delete cascade,
+  offer_id     uuid references public.offers (id) on delete set null,
+  status       text not null default 'confirmed' check (status in ('confirmed', 'cancelled')),
+  created_at   timestamptz not null default now()
+);
+
+-- Expo push tokens. A user can have one row per device.
+create table if not exists public.push_tokens (
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  token       text not null,
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, token)
+);
+
+create index if not exists offers_worker_idx   on public.offers (worker_id, status);
+create index if not exists offers_shift_idx    on public.offers (shift_id);
+create index if not exists bookings_worker_idx on public.bookings (worker_id);
+
+-- Foreign key used by the offer -> worker profile join.
+do $$ begin
+  alter table public.offers
+    add constraint offers_worker_id_fkey
+    foreign key (worker_id) references public.worker_profiles (id) on delete cascade;
+exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
+-- accept_offer: the whole first-accept-wins decision in one transaction.
+--
+-- `select ... for update` on the shift row serialises concurrent accepts for
+-- the same shift, so the booking check below cannot race. SECURITY DEFINER so
+-- it can move sibling offers belonging to other workers.
+--
+-- Returns one of:
+--   {"status":"accepted","bookingId":"..."}  booking created, siblings filled
+--   {"status":"filled"}                      someone else already won
+--   {"status":"overlap"}                     worker is busy at that time
+-- ---------------------------------------------------------------------------
+
+create or replace function public.accept_offer(p_offer_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_me         uuid := auth.uid();
+  v_offer      public.offers%rowtype;
+  v_shift      public.shifts%rowtype;
+  v_booking_id uuid;
+  v_overlaps   int;
+begin
+  select * into v_offer from public.offers where id = p_offer_id;
+  if not found or v_offer.worker_id <> v_me then
+    raise exception 'Offer not found';
+  end if;
+
+  -- Serialise every accept for this shift.
+  select * into v_shift from public.shifts where id = v_offer.shift_id for update;
+  if not found then
+    raise exception 'Shift not found';
+  end if;
+
+  -- Someone already won this shift: retire the caller's offer and say so.
+  if exists (select 1 from public.bookings where shift_id = v_offer.shift_id) then
+    update public.offers
+      set status = 'filled', responded_at = now()
+      where shift_id = v_offer.shift_id and status = 'sent';
+    return jsonb_build_object('status', 'filled');
+  end if;
+
+  -- Already booked elsewhere during this window? Times are HH:MM text, so cast
+  -- to `time` rather than comparing strings ("9:00" would sort after "10:00").
+  select count(*) into v_overlaps
+  from public.bookings b
+  join public.shifts s on s.id = b.shift_id
+  where b.worker_id = v_me
+    and b.status = 'confirmed'
+    and s.date = v_shift.date
+    and s.start_time::time < v_shift.end_time::time
+    and s.end_time::time   > v_shift.start_time::time;
+  if v_overlaps > 0 then
+    return jsonb_build_object('status', 'overlap');
+  end if;
+
+  insert into public.bookings (shift_id, worker_id, business_id, offer_id)
+  values (v_offer.shift_id, v_me, v_shift.business_id, v_offer.id)
+  returning id into v_booking_id;
+
+  update public.offers
+    set status = 'accepted', responded_at = now()
+    where id = v_offer.id;
+
+  -- Every other live offer for this shift loses.
+  update public.offers
+    set status = 'filled', responded_at = now()
+    where shift_id = v_offer.shift_id and id <> v_offer.id and status = 'sent';
+
+  return jsonb_build_object('status', 'accepted', 'bookingId', v_booking_id);
+end;
+$$;
+
+alter table public.offer_batches enable row level security;
+alter table public.offers        enable row level security;
+alter table public.bookings      enable row level security;
+alter table public.push_tokens   enable row level security;
+
+-- Everything below drops before creating, so this section can be applied on
+-- its own to a project that already has the tables above it.
+
+-- offer_batches: only the owning business reads/writes.
+drop policy if exists "batches owner read"  on public.offer_batches;
+create policy "batches owner read"  on public.offer_batches for select
+  using (auth.uid() = business_id);
+
+drop policy if exists "batches owner write" on public.offer_batches;
+create policy "batches owner write" on public.offer_batches for insert
+  with check (auth.uid() = business_id and exists (
+    select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid()
+  ));
+
+-- offers: the offered worker reads their own; the owning business reads and
+-- creates them. Status transitions happen only inside `accept_offer`.
+drop policy if exists "offers worker read" on public.offers;
+create policy "offers worker read" on public.offers for select
+  using (auth.uid() = worker_id);
+
+drop policy if exists "offers business read" on public.offers;
+create policy "offers business read" on public.offers for select using (
+  exists (select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid())
+);
+
+drop policy if exists "offers business insert" on public.offers;
+create policy "offers business insert" on public.offers for insert with check (
+  exists (select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid())
+);
+
+-- bookings: visible to the two participants; only `accept_offer` writes them.
+drop policy if exists "bookings participants" on public.bookings;
+create policy "bookings participants" on public.bookings for select using (
+  auth.uid() = worker_id or auth.uid() = business_id
+);
+
+-- push_tokens: you manage your own.
+drop policy if exists "push tokens self" on public.push_tokens;
+create policy "push tokens self" on public.push_tokens for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- The offer sender needs to look up recipients' tokens.
+drop policy if exists "push tokens readable by offerers" on public.push_tokens;
+create policy "push tokens readable by offerers" on public.push_tokens for select using (
+  exists (
+    select 1 from public.offers o
+    join public.shifts s on s.id = o.shift_id
+    where o.worker_id = push_tokens.user_id and s.business_id = auth.uid()
+  )
+);
+
+-- ---------------------------------------------------------------------------
 -- Storage bucket for résumés (public read, owner write).
 -- ---------------------------------------------------------------------------
 
