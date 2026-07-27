@@ -5,11 +5,15 @@
  */
 
 import type {
+  AcceptOfferResult,
   Account,
+  Booking,
   Business,
   InterestedWorker,
   Match,
   Message,
+  Offer,
+  OfferBatch,
   ResumeFile,
   Role,
   Session,
@@ -18,6 +22,9 @@ import type {
   SwipeResult,
   WorkerProfile,
 } from './types';
+
+/** Most workers an employer can put in one offer batch (AC-2). */
+export const MAX_OFFERS_PER_BATCH = 10;
 
 export interface Backend {
   /** True when backed by a real Supabase project (vs. the in-memory demo). */
@@ -55,6 +62,24 @@ export interface Backend {
     workerId: string,
     direction: SwipeDirection,
   ): Promise<SwipeResult>;
+
+  // ---- race-mode offers ----
+  /** Everyone who liked this shift, for the employer's Interested queue. */
+  interestedWorkers(shiftId: string): Promise<InterestedWorker[]>;
+  /**
+   * Offer one shift to several workers at once. Creates one batch and one
+   * `sent` offer per worker, then pushes each of them a notification.
+   * Rejects more than `MAX_OFFERS_PER_BATCH` workers.
+   */
+  sendOffers(shiftId: string, workerIds: string[]): Promise<OfferBatch>;
+  /** Live (`sent`) offers for the current worker, newest first. */
+  listMyOffers(): Promise<Offer[]>;
+  /** Take an offer. First accept for a shift wins; see `AcceptOfferResult`. */
+  acceptOffer(offerId: string): Promise<AcceptOfferResult>;
+  /** Confirmed bookings for the current worker, newest first. */
+  listMyBookings(): Promise<Booking[]>;
+  /** Store an Expo push token for the signed-in user. */
+  registerPushToken(token: string): Promise<void>;
 
   // ---- matches + chat ----
   listMatches(): Promise<Match[]>;
