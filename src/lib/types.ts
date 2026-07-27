@@ -189,7 +189,7 @@ export interface SwipeResult {
 
 // ---- race-mode offers ----
 
-export type OfferStatus = 'sent' | 'accepted' | 'filled' | 'declined';
+export type OfferStatus = 'sent' | 'accepted' | 'declined' | 'expired' | 'filled';
 
 /** One shift offered to one worker as part of a batch. */
 export interface Offer {
@@ -213,16 +213,79 @@ export interface OfferBatch {
   offers: Offer[];
 }
 
+/**
+ * How a booking ended. `cancelled_by_employer` and `cancelled_by_worker` are
+ * distinct because the cancellation policy and any refund turn on which it was.
+ */
+export type BookingStatus =
+  | 'confirmed'
+  | 'cancelled_by_employer'
+  | 'cancelled_by_worker'
+  | 'no_show'
+  | 'completed';
+
 export interface Booking {
   id: string;
   shiftId: string;
   workerId: string;
   businessId: string;
   offerId?: string;
-  status: 'confirmed' | 'cancelled';
+  status: BookingStatus;
   createdAt: string;
   /** Hydrated for the worker's booked list. */
   shift?: Shift;
+}
+
+// ---- shift lifecycle, money, and rate configuration ----
+//
+// Every monetary field below is an integer count of cents, matching the money
+// rule in db/schema.sql. `Shift.payRate` and `WorkerProfile.desiredRate` are
+// the two pre-existing exceptions and remain plain numbers.
+
+/** A market Flexi operates in. Drives the workers' comp component of cost. */
+export interface Vertical {
+  id: string;
+  name: string;
+  compClassCode: string;
+  compRatePct: number;
+}
+
+/** A business's subscription tier. The multiplier sets the employer bill rate. */
+export interface PricingTier {
+  id: string;
+  name: string;
+  monthlyPriceCents: number;
+  markupMultiplier: number;
+}
+
+export type TimesheetStatus = 'open' | 'submitted' | 'approved' | 'disputed';
+
+/** Hours worked against one booking, and their approval state. */
+export interface Timesheet {
+  id: string;
+  bookingId: string;
+  clockInAt?: string;
+  clockOutAt?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  status: TimesheetStatus;
+  createdAt: string;
+}
+
+/** The money record for one booking: what was billed, escrowed and released. */
+export interface ShiftPayment {
+  id: string;
+  bookingId: string;
+  shiftId: string;
+  billRateCents: number;
+  wageRateCents: number;
+  scheduledHours: number;
+  escrowAmountCents: number;
+  refundedAmountCents: number;
+  capturedAt?: string;
+  releasedAt?: string;
+  stripePaymentIntentId?: string;
+  createdAt: string;
 }
 
 /**
