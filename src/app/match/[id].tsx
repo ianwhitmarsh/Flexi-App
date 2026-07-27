@@ -18,7 +18,7 @@ import { palette, radius } from '@/constants/theme';
 import { buildOpener } from '@/lib/opener';
 import { useSession } from '@/lib/session';
 import type { Match, Message } from '@/lib/types';
-import { formatDate, formatTimeRange } from '@/lib/util';
+import { formatDate, formatTimeRange, isShiftLive } from '@/lib/util';
 
 export default function Chat() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -85,8 +85,24 @@ export default function Chat() {
         })
       : '';
 
+  /**
+   * Whether this shift is still something a worker could end up doing. A
+   * `filled` shift went to somebody else, `closed` was called off, and an ended
+   * one is simply over.
+   */
+  const shiftIsLive = !!match?.shift && isShiftLive(match.shift);
+
   const showOpener =
-    !loading && !isWorker && !!match && messages.length === 0 && !match.openerDismissedAt && !openerHidden;
+    !loading &&
+    !isWorker &&
+    !!match &&
+    messages.length === 0 &&
+    !match.openerDismissedAt &&
+    !openerHidden &&
+    // The opener ends "Any questions before the shift?", which reads as *you
+    // are working this*. On a shift that is gone, that is not true and one tap
+    // would send it. The employer can still write whatever they like.
+    shiftIsLive;
 
   const discardOpener = async () => {
     setOpenerHidden(true);
@@ -98,6 +114,31 @@ export default function Chat() {
       setOpenerHidden(false);
     }
   };
+
+  /**
+   * What the thread is about, in the present tense only while that is true.
+   * Once a shift is filled, called off, or over, saying somebody "is
+   * interested" describes work that is no longer on offer.
+   */
+  const contextHint = (() => {
+    const status = match?.shift?.status;
+    if (shiftIsLive) {
+      return isWorker
+        ? "You're interested in this shift — sort out the details below."
+        : 'They’re interested in this shift — sort out the details below.';
+    }
+    if (status === 'filled') {
+      return isWorker
+        ? 'This shift has been filled.'
+        : 'This shift is filled — you can still message them.';
+    }
+    if (status === 'closed') {
+      return isWorker
+        ? 'This shift was closed by the employer.'
+        : 'You closed this shift — you can still message them.';
+    }
+    return isWorker ? 'This shift has ended.' : 'This shift has ended — you can still message them.';
+  })();
 
   const counterpartName = isWorker
     ? match?.business?.companyName ?? match?.shift?.business?.companyName ?? 'Business'
@@ -142,11 +183,7 @@ export default function Chat() {
                   ${match.shift.payRate}/{match.shift.payType} · {formatDate(match.shift.date)} ·{' '}
                   {formatTimeRange(match.shift.startTime, match.shift.endTime)}
                 </Text>
-                <Text style={styles.contextHint}>
-                  {isWorker
-                    ? "You're interested in this shift — sort out the details below."
-                    : 'They’re interested in this shift — sort out the details below.'}
-                </Text>
+                <Text style={styles.contextHint}>{contextHint}</Text>
               </View>
             )}
 

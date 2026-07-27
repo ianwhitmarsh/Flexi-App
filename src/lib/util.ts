@@ -164,6 +164,21 @@ export function hasShiftEnded(shift: ShiftTimes, now: Date = new Date()): boolea
   return shiftEndsAt(shift).getTime() <= now.getTime();
 }
 
+/**
+ * Whether a shift is still work somebody could end up doing: open, and not yet
+ * over. `filled` went to someone else, `closed` was called off, ended is ended.
+ *
+ * Used where the app would otherwise speak about a shift in the present tense —
+ * the suggested opener says "any questions before the shift?", which reads as
+ * *you are working this* and must not be offered once that is untrue.
+ */
+export function isShiftLive(
+  shift: ShiftTimes & { status: string },
+  now: Date = new Date(),
+): boolean {
+  return shift.status === 'open' && !hasShiftEnded(shift, now);
+}
+
 export function timeAgo(iso?: string): string {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
