@@ -497,6 +497,7 @@ export class MockBackend implements Backend {
     const shift = this.data.shifts.find((s) => s.id === shiftId);
     if (!shift) throw new Error('Shift not found.');
     if (shift.businessId !== acc.userId) throw new Error('That is not your shift.');
+    if (shift.status !== 'open') throw new Error('This shift is no longer open.');
 
     const unique = [...new Set(workerIds)];
     if (unique.length === 0) throw new Error('Pick at least one worker.');

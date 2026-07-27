@@ -105,6 +105,31 @@ describe('sendOffers', () => {
     await expect(backend.sendOffers(shift.id, tooMany)).rejects.toThrow(/at most 10/);
   });
 
+  // BIG-64.
+  it('rejects a batch for a shift the employer has closed', async () => {
+    const { backend, shift, workerA } = await setupOfferedShift();
+
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    await backend.closeShift(shift.id);
+    await expect(backend.sendOffers(shift.id, [workerA])).rejects.toThrow(/no longer open/);
+
+    // The fixture's original batch is untouched and nothing new was written.
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect(await backend.listMyOffers()).toHaveLength(1);
+  });
+
+  // BIG-64. A successful accept closes the shift (BIG-59), so this is the same
+  // precondition reached the way it actually happens in practice.
+  it('rejects a batch for a shift that has already been booked', async () => {
+    const { backend, shift, workerA, offerA } = await setupOfferedShift();
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(offerA.id)).status).toBe('accepted');
+
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    await expect(backend.sendOffers(shift.id, [workerA])).rejects.toThrow(/no longer open/);
+  });
+
   it('shows the offer to the offered worker with shift details and pay', async () => {
     const { backend, shift } = await setupOfferedShift();
     await backend.signIn(WORKER_A.email, WORKER_A.password);
@@ -383,7 +408,10 @@ describe('backend parity', () => {
   });
 
   it('both backends return the same shapes for the three offer methods', async () => {
-    const { backend: mock, shift, workerA } = await setupOfferedShift();
+    // The fixture's own batch, rather than a second send: accepting closes the
+    // shift (BIG-59), so a re-send would now be refused by BIG-64. Same shape
+    // either way, which is all this test compares.
+    const { backend: mock, shift, workerA, batch: mockBatch } = await setupOfferedShift();
     await mock.signIn(WORKER_A.email, WORKER_A.password);
     const mockOffers = await mock.listMyOffers();
     const mockAccept = await mock.acceptOffer(mockOffers[0].id);
@@ -395,9 +423,6 @@ describe('backend parity', () => {
     asUser(workerA);
     const liveOffers = await live.listMyOffers();
     const liveAccept = await live.acceptOffer(liveOffers[0].id);
-
-    await mock.signIn(BUSINESS.email, BUSINESS.password);
-    const mockBatch = await mock.sendOffers(shift.id, [workerA]);
 
     expect(keysOf(liveBatch)).toEqual(keysOf(mockBatch));
     expect(keysOf(liveBatch.offers[0])).toEqual(keysOf(mockBatch.offers[0]));

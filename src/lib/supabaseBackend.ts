@@ -465,6 +465,7 @@ export class SupabaseBackend implements Backend {
     if (shiftErr) throw shiftErr;
     if (!shiftRow) throw new Error('Shift not found.');
     if (shiftRow.business_id !== id) throw new Error('That is not your shift.');
+    if (shiftRow.status !== 'open') throw new Error('This shift is no longer open.');
     const shift = toShift(shiftRow);
 
     const { data: batchRow, error: batchErr } = await this.sb

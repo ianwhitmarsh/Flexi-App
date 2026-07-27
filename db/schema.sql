@@ -459,10 +459,14 @@ drop policy if exists "batches owner read"  on public.offer_batches;
 create policy "batches owner read"  on public.offer_batches for select
   using (auth.uid() = business_id);
 
+-- `s.status = 'open'` is the enforced half of the same precondition the two
+-- backends check. Both of those run on the device, so RLS is what actually
+-- stops a batch being sent for a closed or already-booked shift.
 drop policy if exists "batches owner write" on public.offer_batches;
 create policy "batches owner write" on public.offer_batches for insert
   with check (auth.uid() = business_id and exists (
-    select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid()
+    select 1 from public.shifts s
+    where s.id = shift_id and s.business_id = auth.uid() and s.status = 'open'
   ));
 
 -- offers: the offered worker reads their own; the owning business reads and
@@ -478,7 +482,10 @@ create policy "offers business read" on public.offers for select using (
 
 drop policy if exists "offers business insert" on public.offers;
 create policy "offers business insert" on public.offers for insert with check (
-  exists (select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid())
+  exists (
+    select 1 from public.shifts s
+    where s.id = shift_id and s.business_id = auth.uid() and s.status = 'open'
+  )
 );
 
 -- bookings: visible to the two participants; only `accept_offer` writes them.
