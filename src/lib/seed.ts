@@ -51,7 +51,8 @@ const soon = (offsetDays: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-export const SEED_SHIFTS: Shift[] = [
+/** Demo shifts all use the original swipe-and-match flow. */
+const STANDARD_SHIFTS: Omit<Shift, 'fillMode'>[] = [
   {
     id: 'shift_barista_sat',
     businessId: 'biz_bluebottle',
@@ -150,6 +151,11 @@ export const SEED_SHIFTS: Shift[] = [
     createdAt: new Date().toISOString(),
   },
 ];
+
+export const SEED_SHIFTS: Shift[] = STANDARD_SHIFTS.map((s) => ({
+  ...s,
+  fillMode: 'standard',
+}));
 
 /**
  * Demo worker profiles. These also seed the business deck: each is treated as

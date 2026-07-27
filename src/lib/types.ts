@@ -39,6 +39,13 @@ export interface Business {
 
 export type ShiftStatus = 'open' | 'closed';
 
+/**
+ * How the employer wants the shift filled. `standard` is the original
+ * swipe-and-match flow; `race` sends batch offers where the first worker to
+ * accept books the shift.
+ */
+export type FillMode = 'standard' | 'race';
+
 export interface Shift {
   id: string;
   businessId: string;
@@ -54,6 +61,7 @@ export interface Shift {
   description: string;
   requirements: string[];
   status: ShiftStatus;
+  fillMode: FillMode;
   createdAt: string;
   /** Hydrated for deck/match views. */
   business?: Business;
@@ -99,6 +107,57 @@ export interface Message {
 export interface SwipeResult {
   matched: boolean;
   match?: Match;
+}
+
+// ---- race-mode offers ----
+
+export type OfferStatus = 'sent' | 'accepted' | 'filled' | 'declined';
+
+/** One shift offered to one worker as part of a batch. */
+export interface Offer {
+  id: string;
+  batchId: string;
+  shiftId: string;
+  workerId: string;
+  status: OfferStatus;
+  createdAt: string;
+  respondedAt?: string;
+  /** Hydrated for the worker's offer cards. */
+  shift?: Shift;
+}
+
+/** One "Send offer" action: the same shift sent to several workers at once. */
+export interface OfferBatch {
+  id: string;
+  shiftId: string;
+  businessId: string;
+  createdAt: string;
+  offers: Offer[];
+}
+
+export interface Booking {
+  id: string;
+  shiftId: string;
+  workerId: string;
+  businessId: string;
+  offerId?: string;
+  status: 'confirmed' | 'cancelled';
+  createdAt: string;
+  /** Hydrated for the worker's booked list. */
+  shift?: Shift;
+}
+
+/**
+ * Outcome of accepting an offer.
+ *  - `accepted` — this worker won; `booking` is set.
+ *  - `filled`   — another worker got there first.
+ *  - `overlap`  — the worker already has a booking during this window.
+ */
+export type AcceptOfferStatus = 'accepted' | 'filled' | 'overlap';
+
+export interface AcceptOfferResult {
+  status: AcceptOfferStatus;
+  booking?: Booking;
 }
 
 export interface ResumeFile {

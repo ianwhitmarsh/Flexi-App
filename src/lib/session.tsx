@@ -12,6 +12,7 @@ import {
 
 import type { Backend } from './backend';
 import { getBackend } from './getBackend';
+import { getPushToken } from './push';
 import type { Account } from './types';
 
 interface SessionValue {
@@ -51,6 +52,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [backend]);
+
+  // Register this device for offer pushes once we know who's signed in.
+  const userId = account?.session.userId;
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    (async () => {
+      const token = await getPushToken();
+      if (!active || !token) return;
+      try {
+        await backend.registerPushToken(token);
+      } catch {
+        // Push is a nicety; never block the session on it.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [backend, userId]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {

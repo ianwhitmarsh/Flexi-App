@@ -16,7 +16,21 @@ import { Button, Field, IconButton, Screen } from '@/components/ui';
 import { palette, radius } from '@/constants/theme';
 import { SHIFT_ROLES } from '@/lib/constants';
 import { useSession } from '@/lib/session';
+import type { FillMode } from '@/lib/types';
 import { formatDate } from '@/lib/util';
+
+const FILL_MODES: { value: FillMode; label: string; hint: string }[] = [
+  {
+    value: 'standard',
+    label: 'Standard',
+    hint: 'Review everyone who likes the shift and match one by one.',
+  },
+  {
+    value: 'race',
+    label: 'Fastest fill',
+    hint: 'Offer the shift to several workers at once — first to accept books it.',
+  },
+];
 
 /** Next 7 calendar days as selectable chips. */
 function useDayOptions() {
@@ -47,6 +61,7 @@ export default function NewShift() {
   const [location, setLocation] = useState(account?.business?.city ?? '');
   const [description, setDescription] = useState('');
   const [requirements, setRequirements] = useState<string[]>([]);
+  const [fillMode, setFillMode] = useState<FillMode>('standard');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -70,6 +85,7 @@ export default function NewShift() {
         location: location.trim(),
         description: description.trim(),
         requirements,
+        fillMode,
       });
       router.back();
     } catch (e: any) {
@@ -144,6 +160,32 @@ export default function NewShift() {
           />
           <TagInput label="Requirements" tags={requirements} onChange={setRequirements} placeholder="e.g. Food handler card" />
 
+          <View style={{ gap: 8 }}>
+            <Text style={styles.label}>How do you want it filled?</Text>
+            <View style={styles.fillModes}>
+              {FILL_MODES.map((m) => {
+                const on = m.value === fillMode;
+                return (
+                  <Pressable
+                    key={m.value}
+                    onPress={() => setFillMode(m.value)}
+                    style={[styles.fillMode, on && styles.fillModeOn]}
+                  >
+                    <View style={styles.fillModeTop}>
+                      <Ionicons
+                        name={on ? 'radio-button-on' : 'radio-button-off'}
+                        size={18}
+                        color={on ? palette.primary : palette.textFaint}
+                      />
+                      <Text style={[styles.fillModeLabel, on && styles.fillModeLabelOn]}>{m.label}</Text>
+                    </View>
+                    <Text style={styles.fillModeHint}>{m.hint}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
           {error && (
             <View style={styles.errorRow}>
               <Ionicons name="alert-circle" size={16} color={palette.pass} />
@@ -180,6 +222,20 @@ const styles = StyleSheet.create({
   dayOn: { backgroundColor: palette.primary },
   dayText: { fontSize: 13.5, fontWeight: '700', color: palette.chipText },
   dayTextOn: { color: '#fff' },
+  fillModes: { gap: 10 },
+  fillMode: {
+    borderWidth: 1.5,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    borderRadius: radius.md,
+    padding: 14,
+    gap: 6,
+  },
+  fillModeOn: { borderColor: palette.primary, backgroundColor: '#FFF5F8' },
+  fillModeTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  fillModeLabel: { fontSize: 15, fontWeight: '800', color: palette.text },
+  fillModeLabelOn: { color: palette.primaryDeep },
+  fillModeHint: { fontSize: 13, color: palette.textMuted, lineHeight: 18 },
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   errorText: { color: palette.pass, fontSize: 13, flex: 1 },
 });

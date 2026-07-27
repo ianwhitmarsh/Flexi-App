@@ -77,12 +77,30 @@ export default function MyShifts() {
               <Text style={styles.pay}>
                 ${s.payRate}/{s.payType} · {s.role}
               </Text>
+              {s.fillMode === 'race' && (
+                <View style={styles.raceBadge}>
+                  <Ionicons name="flash" size={12} color={palette.primaryDeep} />
+                  <Text style={styles.raceText}>Fastest fill</Text>
+                </View>
+              )}
               <View style={styles.metaRow}>
                 <Ionicons name="calendar" size={14} color={palette.textMuted} />
                 <Text style={styles.meta}>{formatDate(s.date)}</Text>
                 <Ionicons name="time" size={14} color={palette.textMuted} style={{ marginLeft: 10 }} />
                 <Text style={styles.meta}>{formatTimeRange(s.startTime, s.endTime)}</Text>
               </View>
+              {s.status === 'open' && s.fillMode === 'race' && (
+                <Pressable
+                  onPress={() =>
+                    router.push({ pathname: '/shift/[id]/interested', params: { id: s.id } })
+                  }
+                  style={styles.interestedBtn}
+                >
+                  <Ionicons name="people" size={15} color={palette.primary} />
+                  <Text style={styles.interestedText}>Interested workers</Text>
+                  <Ionicons name="chevron-forward" size={15} color={palette.primary} />
+                </Pressable>
+              )}
               {s.status === 'open' && (
                 <Pressable onPress={() => close(s.id)} style={styles.closeBtn}>
                   <Ionicons name="lock-closed-outline" size={15} color={palette.textMuted} />
@@ -131,6 +149,19 @@ const styles = StyleSheet.create({
   pay: { fontSize: 14.5, fontWeight: '700', color: palette.primaryDeep },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   meta: { fontSize: 13, color: palette.textMuted, fontWeight: '600' },
+  raceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFE7F0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  raceText: { fontSize: 11.5, fontWeight: '800', color: palette.primaryDeep },
+  interestedBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  interestedText: { fontSize: 13.5, color: palette.primary, fontWeight: '800', flex: 1 },
   closeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   closeText: { fontSize: 13.5, color: palette.textMuted, fontWeight: '700' },
 });

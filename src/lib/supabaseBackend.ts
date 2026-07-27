@@ -6,15 +6,20 @@
 
 import { decode as decodeBase64 } from 'base64-arraybuffer';
 
-import type { Backend } from './backend';
+import { MAX_OFFERS_PER_BATCH, type Backend } from './backend';
 import { RESUME_BUCKET } from './config';
+import { sendOfferPush } from './push';
 import { getSupabase } from './supabaseClient';
 import type {
+  AcceptOfferResult,
   Account,
+  Booking,
   Business,
   InterestedWorker,
   Match,
   Message,
+  Offer,
+  OfferBatch,
   ResumeFile,
   Role,
   Session,
@@ -40,8 +45,34 @@ function toShift(row: any): Shift {
     description: row.description ?? '',
     requirements: row.requirements ?? [],
     status: row.status,
+    fillMode: row.fill_mode ?? 'standard',
     createdAt: row.created_at,
     business: row.businesses ? toBusiness(row.businesses) : undefined,
+  };
+}
+
+function toOffer(row: any): Offer {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    shiftId: row.shift_id,
+    workerId: row.worker_id,
+    status: row.status,
+    createdAt: row.created_at,
+    respondedAt: row.responded_at ?? undefined,
+    shift: row.shifts ? toShift(row.shifts) : undefined,
+  };
+}
+
+function toBooking(row: any): Booking {
+  return {
+    id: row.id,
+    shiftId: row.shift_id,
+    workerId: row.worker_id,
+    businessId: row.business_id,
+    offerId: row.offer_id ?? undefined,
+    status: row.status,
+    createdAt: row.created_at,
   };
 }
 
@@ -286,6 +317,7 @@ export class SupabaseBackend implements Backend {
       description: data.description,
       requirements: data.requirements,
       status: 'open',
+      fill_mode: data.fillMode,
     };
     const { data: saved, error } = await this.sb
       .from('shifts')
@@ -374,6 +406,141 @@ export class SupabaseBackend implements Backend {
       .eq('worker_id', workerId)
       .maybeSingle();
     return data ? { matched: true, match: toMatch(data) } : { matched: false };
+  }
+
+  // ---- race-mode offers ----
+  async interestedWorkers(shiftId: string): Promise<InterestedWorker[]> {
+    const id = await this.uid();
+    const { data, error } = await this.sb
+      .from('swipes')
+      .select('worker_id, created_at, shifts!inner(*, businesses(*)), worker_profiles!swipes_worker_id_fkey(*)')
+      .eq('role', 'worker')
+      .neq('direction', 'pass')
+      .eq('shift_id', shiftId)
+      .eq('shifts.business_id', id)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    const seen = new Set<string>();
+    const cards: InterestedWorker[] = [];
+    for (const row of data ?? []) {
+      if (!row.worker_profiles || !row.shifts || seen.has(row.worker_id)) continue;
+      seen.add(row.worker_id);
+      cards.push({
+        shift: toShift(row.shifts),
+        worker: toWorker(row.worker_profiles),
+        swipedAt: row.created_at,
+      });
+    }
+    return cards;
+  }
+
+  async sendOffers(shiftId: string, workerIds: string[]): Promise<OfferBatch> {
+    const id = await this.uid();
+    const unique = [...new Set(workerIds)];
+    if (unique.length === 0) throw new Error('Pick at least one worker.');
+    if (unique.length > MAX_OFFERS_PER_BATCH) {
+      throw new Error(`You can offer a shift to at most ${MAX_OFFERS_PER_BATCH} workers at once.`);
+    }
+
+    const { data: shiftRow, error: shiftErr } = await this.sb
+      .from('shifts')
+      .select('*, businesses(*)')
+      .eq('id', shiftId)
+      .maybeSingle();
+    if (shiftErr) throw shiftErr;
+    if (!shiftRow) throw new Error('Shift not found.');
+    if (shiftRow.business_id !== id) throw new Error('That is not your shift.');
+    const shift = toShift(shiftRow);
+
+    const { data: batchRow, error: batchErr } = await this.sb
+      .from('offer_batches')
+      .insert({ shift_id: shiftId, business_id: id })
+      .select()
+      .single();
+    if (batchErr) throw batchErr;
+
+    const { data: offerRows, error: offerErr } = await this.sb
+      .from('offers')
+      .insert(
+        unique.map((workerId) => ({
+          batch_id: batchRow.id,
+          shift_id: shiftId,
+          worker_id: workerId,
+          status: 'sent',
+        })),
+      )
+      .select();
+    if (offerErr) throw offerErr;
+
+    await this.pushOfferTo(unique, shift);
+
+    return {
+      id: batchRow.id,
+      shiftId: batchRow.shift_id,
+      businessId: batchRow.business_id,
+      createdAt: batchRow.created_at,
+      offers: (offerRows ?? []).map((r) => ({ ...toOffer(r), shift })),
+    };
+  }
+
+  /** Look up the recipients' device tokens and hand them to Expo. */
+  private async pushOfferTo(workerIds: string[], shift: Shift): Promise<void> {
+    const { data } = await this.sb
+      .from('push_tokens')
+      .select('token')
+      .in('user_id', workerIds);
+    await sendOfferPush((data ?? []).map((r) => r.token), shift);
+  }
+
+  async listMyOffers(): Promise<Offer[]> {
+    const id = await this.uid();
+    const { data, error } = await this.sb
+      .from('offers')
+      .select('*, shifts(*, businesses(*))')
+      .eq('worker_id', id)
+      .eq('status', 'sent')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(toOffer);
+  }
+
+  async acceptOffer(offerId: string): Promise<AcceptOfferResult> {
+    // All of the first-accept-wins logic lives in the `accept_offer` function
+    // so the shift row lock and the booking insert share one transaction.
+    const { data, error } = await this.sb.rpc('accept_offer', { p_offer_id: offerId });
+    if (error) throw error;
+    const status = (data as any)?.status as AcceptOfferResult['status'];
+    if (status !== 'accepted') return { status };
+
+    const { data: bookingRow } = await this.sb
+      .from('bookings')
+      .select('*')
+      .eq('id', (data as any).bookingId)
+      .maybeSingle();
+    return { status, booking: bookingRow ? toBooking(bookingRow) : undefined };
+  }
+
+  async listMyBookings(): Promise<Booking[]> {
+    const id = await this.uid();
+    const { data, error } = await this.sb
+      .from('bookings')
+      .select('*, shifts(*, businesses(*))')
+      .eq('worker_id', id)
+      .eq('status', 'confirmed')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((row) => ({
+      ...toBooking(row),
+      shift: row.shifts ? toShift(row.shifts) : undefined,
+    }));
+  }
+
+  async registerPushToken(token: string): Promise<void> {
+    const id = await this.uid();
+    const { error } = await this.sb
+      .from('push_tokens')
+      .upsert({ user_id: id, token, updated_at: new Date().toISOString() });
+    if (error) throw error;
   }
 
   // ---- matches + chat ----

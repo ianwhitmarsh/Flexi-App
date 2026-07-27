@@ -1,0 +1,204 @@
+/**
+ * The Interested queue for one shift: every worker who liked it, with
+ * multi-select so the employer can offer the shift to several at once.
+ */
+
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { Avatar, Button, Card, EmptyState, IconButton, Screen } from '@/components/ui';
+import { palette, radius } from '@/constants/theme';
+import { MAX_OFFERS_PER_BATCH } from '@/lib/backend';
+import { useSession } from '@/lib/session';
+import type { InterestedWorker, Shift } from '@/lib/types';
+import { formatDate, formatTimeRange } from '@/lib/util';
+
+export default function InterestedQueue() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const { backend } = useSession();
+
+  const [shift, setShift] = useState<Shift | null>(null);
+  const [cards, setCards] = useState<InterestedWorker[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [mine, interested] = await Promise.all([
+        backend.myShifts(),
+        backend.interestedWorkers(id),
+      ]);
+      setShift(mine.find((s) => s.id === id) ?? null);
+      setCards(interested);
+    } finally {
+      setLoading(false);
+    }
+  }, [backend, id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  const atCap = selected.length >= MAX_OFFERS_PER_BATCH;
+
+  const toggle = (workerId: string) => {
+    setSelected((prev) => {
+      if (prev.includes(workerId)) return prev.filter((w) => w !== workerId);
+      if (prev.length >= MAX_OFFERS_PER_BATCH) return prev;
+      return [...prev, workerId];
+    });
+  };
+
+  const send = async () => {
+    if (selected.length === 0 || !shift) return;
+    setSending(true);
+    try {
+      const batch = await backend.sendOffers(shift.id, selected);
+      setSelected([]);
+      Alert.alert(
+        'Offers sent',
+        `${batch.offers.length} worker${batch.offers.length === 1 ? '' : 's'} notified. The first to accept books the shift.`,
+        [{ text: 'Done', onPress: () => router.back() }],
+      );
+    } catch (e: any) {
+      Alert.alert('Could not send offers', e?.message ?? 'Something went wrong.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Screen edges={['top']}>
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Interested</Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {shift ? shift.title : 'Loading…'}
+          </Text>
+        </View>
+        <IconButton icon="close" onPress={() => router.back()} />
+      </View>
+
+      {shift && (
+        <View style={styles.shiftStrip}>
+          <Ionicons name="calendar" size={14} color={palette.textMuted} />
+          <Text style={styles.stripText}>{formatDate(shift.date)}</Text>
+          <Ionicons name="time" size={14} color={palette.textMuted} style={{ marginLeft: 8 }} />
+          <Text style={styles.stripText}>{formatTimeRange(shift.startTime, shift.endTime)}</Text>
+          <View style={styles.payPill}>
+            <Text style={styles.payText}>
+              ${shift.payRate}/{shift.payType}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={palette.primary} />
+        </View>
+      ) : cards.length === 0 ? (
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <EmptyState
+            icon="people-outline"
+            title="Nobody yet"
+            subtitle="When workers swipe right on this shift they'll show up here, ready to be offered it."
+          />
+        </View>
+      ) : (
+        <>
+          <Text style={styles.hint}>
+            Pick up to {MAX_OFFERS_PER_BATCH}. Everyone you pick gets the offer at once — the first
+            to accept books the shift.
+          </Text>
+          <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+            {cards.map(({ worker }) => {
+              const on = selected.includes(worker.id);
+              const disabled = !on && atCap;
+              return (
+                <Pressable key={worker.id} onPress={() => toggle(worker.id)} disabled={disabled}>
+                  <Card style={[styles.row, on && styles.rowOn, disabled && styles.rowDisabled]}>
+                    <Avatar name={worker.fullName} size={44} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.name} numberOfLines={1}>
+                        {worker.fullName}
+                      </Text>
+                      <Text style={styles.headline} numberOfLines={1}>
+                        {worker.headline || `${worker.yearsExperience} yrs experience`}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={24}
+                      color={on ? palette.primary : palette.textFaint}
+                    />
+                  </Card>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <View style={styles.footer}>
+            <Button
+              title={selected.length ? `Send offer (${selected.length})` : 'Send offer'}
+              icon="paper-plane"
+              onPress={send}
+              loading={sending}
+              disabled={selected.length === 0}
+            />
+          </View>
+        </>
+      )}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 6,
+  },
+  title: { fontSize: 26, fontWeight: '900', color: palette.text, letterSpacing: -0.5 },
+  subtitle: { fontSize: 14, color: palette.textMuted, marginTop: 2 },
+  shiftStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  stripText: { fontSize: 13, color: palette.textMuted, fontWeight: '600' },
+  payPill: {
+    marginLeft: 'auto',
+    backgroundColor: palette.chipBg,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  payText: { fontSize: 12.5, fontWeight: '800', color: palette.primaryDeep },
+  hint: {
+    fontSize: 13,
+    color: palette.textMuted,
+    lineHeight: 18,
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  list: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: 'transparent' },
+  rowOn: { borderColor: palette.primary, backgroundColor: '#FFF5F8' },
+  rowDisabled: { opacity: 0.45 },
+  name: { fontSize: 16, fontWeight: '800', color: palette.text },
+  headline: { fontSize: 13.5, color: palette.textMuted, marginTop: 1 },
+  footer: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
+});
