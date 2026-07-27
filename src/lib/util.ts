@@ -41,6 +41,42 @@ export function minutesOfDay(t: string): number {
   return Number(h) * 60 + Number(m ?? 0);
 }
 
+/** The date and times any shift-like value needs for its span. */
+type ShiftTimes = { date: string; startTime: string; endTime: string };
+
+/**
+ * When a shift ends, as a local instant.
+ *
+ * The stored `date` and `HH:MM` times are local wall clock, so they are rebuilt
+ * in local time rather than parsed as UTC. `shiftSpan` in `mockBackend` parses
+ * at UTC midnight, which is right there because it only ever compares two
+ * shifts against each other and the constant offset cancels — against the
+ * actual clock it would not, and every comparison would be wrong by the
+ * viewer's UTC offset.
+ *
+ * The overnight rule matches `shiftSpan` and `shift_slot` in db/schema.sql: an
+ * end at or before the start belongs to the next day. Minutes beyond 59 roll
+ * over into hours and days on their own, so a 30-hour offset needs no special
+ * casing.
+ */
+export function shiftEndsAt(shift: ShiftTimes): Date {
+  const [year, month, day] = shift.date.split('-').map(Number);
+  const start = minutesOfDay(shift.startTime);
+  const end = minutesOfDay(shift.endTime);
+  return new Date(year, month - 1, day, 0, end > start ? end : end + 24 * 60);
+}
+
+/**
+ * True once a shift is over. Nobody can work it, so it must not be discovered,
+ * offered, or accepted.
+ *
+ * Deliberately the end and not the start: filling a shift that has already
+ * begun is what same-day hiring is for.
+ */
+export function hasShiftEnded(shift: ShiftTimes, now: Date = new Date()): boolean {
+  return shiftEndsAt(shift).getTime() <= now.getTime();
+}
+
 export function timeAgo(iso?: string): string {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();

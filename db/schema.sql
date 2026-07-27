@@ -452,6 +452,16 @@ begin
     raise exception 'This shift is no longer open';
   end if;
 
+  -- Work that is already over cannot be booked: a booking behind a finished
+  -- shift becomes a payout question once BIG-53 computes from it. `upper` of
+  -- the same `shift_slot` the overlap check uses, so overnight shifts get the
+  -- same treatment here as everywhere else. Compared against `localtimestamp`
+  -- because the slot is built from a local date and wall-clock times.
+  if upper(public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time))
+       <= localtimestamp then
+    raise exception 'This shift has already ended';
+  end if;
+
   v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time);
 
   -- Already booked elsewhere during this window? Compared as ranges, using the

@@ -10,6 +10,7 @@ import { MAX_OFFERS_PER_BATCH, type Backend } from './backend';
 import { RESUME_BUCKET } from './config';
 import { sendOfferPush } from './push';
 import { getSupabase } from './supabaseClient';
+import { hasShiftEnded } from './util';
 import type {
   AcceptOfferResult,
   Account,
@@ -303,13 +304,23 @@ export class SupabaseBackend implements Backend {
     const id = await this.uid();
     const { data: swipes } = await this.sb.from('swipes').select('shift_id').eq('swiper_id', id);
     const seen = new Set((swipes ?? []).map((s) => s.shift_id));
+    // `gte(date, yesterday)` is a cheap server-side floor — yesterday rather
+    // than today so an overnight shift that started yesterday and runs past
+    // midnight survives. `hasShiftEnded` then decides precisely, because the
+    // end time is wall clock and not something PostgREST can compare.
+    const floor = new Date();
+    floor.setDate(floor.getDate() - 1);
     const { data, error } = await this.sb
       .from('shifts')
       .select('*, businesses(*)')
       .eq('status', 'open')
+      .gte('date', floor.toISOString().slice(0, 10))
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data ?? []).filter((s) => !seen.has(s.id)).map(toShift);
+    return (data ?? [])
+      .filter((s) => !seen.has(s.id))
+      .map(toShift)
+      .filter((s) => !hasShiftEnded(s));
   }
 
   async myShifts(): Promise<Shift[]> {
@@ -401,8 +412,10 @@ export class SupabaseBackend implements Backend {
       if (seen.has(key)) continue;
       if (!row.worker_profiles || !row.shifts) continue;
       seen.add(key);
+      const shift = toShift(row.shifts);
+      if (hasShiftEnded(shift)) continue;
       cards.push({
-        shift: toShift(row.shifts),
+        shift,
         worker: toWorker(row.worker_profiles),
         swipedAt: row.created_at,
         threadId: threadId.get(key),
@@ -482,9 +495,11 @@ export class SupabaseBackend implements Backend {
     const cards: InterestedWorker[] = [];
     for (const row of data ?? []) {
       if (!row.worker_profiles || !row.shifts || seen.has(row.worker_id)) continue;
+      const shift = toShift(row.shifts);
+      if (hasShiftEnded(shift)) continue;
       seen.add(row.worker_id);
       cards.push({
-        shift: toShift(row.shifts),
+        shift,
         worker: toWorker(row.worker_profiles),
         swipedAt: row.created_at,
       });
@@ -510,6 +525,7 @@ export class SupabaseBackend implements Backend {
     if (shiftRow.business_id !== id) throw new Error('That is not your shift.');
     if (shiftRow.status !== 'open') throw new Error('This shift is no longer open.');
     const shift = toShift(shiftRow);
+    if (hasShiftEnded(shift)) throw new Error('This shift has already ended.');
 
     const { data: batchRow, error: batchErr } = await this.sb
       .from('offer_batches')
@@ -560,7 +576,9 @@ export class SupabaseBackend implements Backend {
       .eq('status', 'sent')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data ?? []).map(toOffer);
+    // An offer for a shift that has ended is not actionable, so it is not
+    // shown. The row is left alone — expiring offers belongs to BIG-50/54.
+    return (data ?? []).map(toOffer).filter((o) => !o.shift || !hasShiftEnded(o.shift));
   }
 
   async acceptOffer(offerId: string): Promise<AcceptOfferResult> {

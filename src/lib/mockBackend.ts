@@ -34,7 +34,7 @@ import type {
   SwipeResult,
   WorkerProfile,
 } from './types';
-import { minutesOfDay, uid } from './util';
+import { hasShiftEnded, minutesOfDay, uid } from './util';
 
 interface StoredAccount {
   userId: string;
@@ -376,7 +376,9 @@ export class MockBackend implements Backend {
       this.data.swipes.filter((s) => s.swiperId === meId).map((s) => s.shiftId),
     );
     return this.data.shifts
-      .filter((s) => s.status === 'open' && !swiped.has(s.id))
+      // A shift that is over cannot be worked, so it leaves the deck without
+      // anyone having to close it. Derived from the clock, never written.
+      .filter((s) => s.status === 'open' && !swiped.has(s.id) && !hasShiftEnded(s))
       .map((s) => this.hydrateShift(s));
   }
 
@@ -500,7 +502,9 @@ export class MockBackend implements Backend {
     await this.load();
     const meId = this.me().userId;
     const myShiftIds = new Set(
-      this.data.shifts.filter((s) => s.businessId === meId && s.status === 'open').map((s) => s.id),
+      this.data.shifts
+        .filter((s) => s.businessId === meId && s.status === 'open' && !hasShiftEnded(s))
+        .map((s) => s.id),
     );
     // One row per worker per shift: a worker who swipes the same shift twice is
     // still one interested person.
@@ -554,6 +558,8 @@ export class MockBackend implements Backend {
     await this.load();
     const shift = this.data.shifts.find((s) => s.id === shiftId);
     if (!shift || shift.businessId !== this.me().userId) return [];
+    // Nobody can be offered work that is already over.
+    if (hasShiftEnded(shift)) return [];
     const hydrated = this.hydrateShift(shift);
     const seen = new Set<string>();
     const cards: InterestedWorker[] = [];
@@ -575,6 +581,7 @@ export class MockBackend implements Backend {
     if (!shift) throw new Error('Shift not found.');
     if (shift.businessId !== acc.userId) throw new Error('That is not your shift.');
     if (shift.status !== 'open') throw new Error('This shift is no longer open.');
+    if (hasShiftEnded(shift)) throw new Error('This shift has already ended.');
 
     const unique = [...new Set(workerIds)];
     if (unique.length === 0) throw new Error('Pick at least one worker.');
@@ -615,6 +622,9 @@ export class MockBackend implements Backend {
     return this.data.offers
       .filter((o) => o.workerId === meId && o.status === 'sent')
       .map((o) => this.hydrateOffer(o))
+      // A live offer for a shift that has ended is not actionable, so it is not
+      // shown. The offer row is left alone — expiring it is BIG-50/54's job.
+      .filter((o) => !o.shift || !hasShiftEnded(o.shift))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -660,6 +670,8 @@ export class MockBackend implements Backend {
     // the race still gets `filled` rather than one of these.
     if (offer.status !== 'sent') throw new Error('This offer is no longer available.');
     if (shift.status !== 'open') throw new Error('This shift is no longer open.');
+    // Booking work that is already over would put a booking behind a payout.
+    if (hasShiftEnded(shift)) throw new Error('This shift has already ended.');
 
     if (this.hasOverlappingBooking(meId, shift)) return { status: 'overlap' };
 
