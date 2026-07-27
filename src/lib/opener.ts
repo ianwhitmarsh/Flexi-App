@@ -16,14 +16,30 @@ const GREETING: Record<AiTone, (company: string) => string> = {
   warm: (c) => `Hi there — so glad you're interested in joining us at ${c}.`,
 };
 
+/** Who and what the opener is about, when that is known. */
+export interface OpenerContext {
+  /** The worker's first name, so the opener greets a person. */
+  workerFirstName?: string;
+  /** The shift they showed interest in. */
+  shiftTitle?: string;
+}
+
 /**
- * Assemble a sample opener from whatever has been filled in so far. Every
- * clause is conditional, so a half-filled profile still previews cleanly and an
- * empty one still reads as a sentence.
+ * Assemble an opener from whatever has been filled in so far. Every clause is
+ * conditional, so a half-filled profile still reads cleanly and an empty one
+ * still produces a coherent, shift-specific message.
  */
-export function buildOpenerPreview(company: string, p: AiProfile): string {
+export function buildOpener(company: string, p: AiProfile, ctx: OpenerContext = {}): string {
   const name = company.trim() || 'our business';
-  const lines: string[] = [GREETING[p.tone ?? 'warm'](name)];
+  const worker = ctx.workerFirstName?.trim();
+  const shift = ctx.shiftTitle?.trim();
+
+  // The greeting carries the tone; the name and shift are appended so an
+  // employer with no profile at all still gets something specific to say.
+  let greeting = GREETING[p.tone ?? 'warm'](name);
+  if (worker) greeting = `${worker} — ${greeting.charAt(0).toLowerCase()}${greeting.slice(1)}`;
+  const lines: string[] = [greeting];
+  if (shift) lines.push(`This is for ${shift}.`);
 
   if (p.whatMakesUsDifferent?.trim()) lines.push(p.whatMakesUsDifferent.trim());
   if (p.dressCode?.trim()) lines.push(`What to wear: ${p.dressCode.trim()}`);
@@ -35,4 +51,12 @@ export function buildOpenerPreview(company: string, p: AiProfile): string {
 
   lines.push('Any questions before the shift?');
   return lines.join('\n\n');
+}
+
+/**
+ * The sample shown while an employer edits their voice profile. No worker or
+ * shift exists at that point, so it is `buildOpener` with no context.
+ */
+export function buildOpenerPreview(company: string, p: AiProfile): string {
+  return buildOpener(company, p);
 }

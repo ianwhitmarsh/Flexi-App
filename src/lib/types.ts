@@ -133,6 +133,12 @@ export interface Match {
   createdAt: string;
   lastMessage?: string;
   lastMessageAt?: string;
+  /**
+   * When the employer discarded the suggested opener. Set means "do not offer
+   * it again"; the draft itself is derived, never stored, so this is the only
+   * state it needs.
+   */
+  openerDismissedAt?: string;
   /** Hydrated for list/detail views. */
   shift?: Shift;
   worker?: WorkerProfile;

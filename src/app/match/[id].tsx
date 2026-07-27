@@ -15,6 +15,7 @@ import {
 
 import { Avatar, IconButton, Screen } from '@/components/ui';
 import { palette, radius } from '@/constants/theme';
+import { buildOpener } from '@/lib/opener';
 import { useSession } from '@/lib/session';
 import type { Match, Message } from '@/lib/types';
 import { formatDate, formatTimeRange } from '@/lib/util';
@@ -30,6 +31,8 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
+  /** Hides the opener for this visit without recording a discard. */
+  const [openerHidden, setOpenerHidden] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const append = useCallback((m: Message) => {
@@ -54,15 +57,45 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, [messages.length]);
 
-  const send = async () => {
-    const body = draft.trim();
+  const send = async (text?: string) => {
+    const body = (text ?? draft).trim();
     if (!body || !id) return;
-    setDraft('');
+    if (text === undefined) setDraft('');
     try {
       const msg = await backend.sendMessage(id, body);
       append(msg);
     } catch {
-      setDraft(body);
+      if (text === undefined) setDraft(body);
+    }
+  };
+
+  /**
+   * The opener Flexi suggests to the employer, built from their own voice
+   * profile. It is derived here and never stored, so nothing exists that could
+   * leak to the worker — they see a message only once it is actually sent.
+   *
+   * BIG-46 replaces the text source with a generated one behind this same
+   * shape; everything about who sees it and who sends it stays as it is.
+   */
+  const opener =
+    match && !isWorker
+      ? buildOpener(match.business?.companyName ?? '', match.business?.aiProfile ?? {}, {
+          workerFirstName: match.worker?.fullName?.split(' ')[0],
+          shiftTitle: match.shift?.title,
+        })
+      : '';
+
+  const showOpener =
+    !loading && !isWorker && !!match && messages.length === 0 && !match.openerDismissedAt && !openerHidden;
+
+  const discardOpener = async () => {
+    setOpenerHidden(true);
+    try {
+      if (id) await backend.dismissOpenerDraft(id);
+    } catch {
+      // Discarding is a preference, not data: if it fails the draft simply
+      // comes back next time rather than the employer seeing an error.
+      setOpenerHidden(false);
     }
   };
 
@@ -109,9 +142,47 @@ export default function Chat() {
                   ${match.shift.payRate}/{match.shift.payType} · {formatDate(match.shift.date)} ·{' '}
                   {formatTimeRange(match.shift.startTime, match.shift.endTime)}
                 </Text>
-                <Text style={styles.contextHint}>You matched 🎉 — sort out the details below.</Text>
+                <Text style={styles.contextHint}>
+                  {isWorker
+                    ? "You're interested in this shift — sort out the details below."
+                    : 'They’re interested in this shift — sort out the details below.'}
+                </Text>
               </View>
             )}
+
+            {showOpener && (
+              <View style={styles.openerCard}>
+                <View style={styles.openerTop}>
+                  <Ionicons name="sparkles" size={14} color={palette.primaryDeep} />
+                  <Text style={styles.openerLabel}>Draft — only you can see this</Text>
+                </View>
+                <Text style={styles.openerBody}>{opener}</Text>
+                <View style={styles.openerActions}>
+                  <Pressable
+                    onPress={() => send(opener)}
+                    style={({ pressed }) => [styles.openerSend, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.openerSendText}>Send</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setDraft(opener);
+                      setOpenerHidden(true);
+                    }}
+                    style={({ pressed }) => [styles.openerGhost, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.openerGhostText}>Edit</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={discardOpener}
+                    style={({ pressed }) => [styles.openerGhost, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.openerGhostText}>Discard</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
             {messages.map((m) => {
               const mine = m.senderId === me;
               return (
@@ -132,10 +203,10 @@ export default function Chat() {
               placeholderTextColor={palette.textFaint}
               style={styles.input}
               multiline
-              onSubmitEditing={send}
+              onSubmitEditing={() => send()}
             />
             <Pressable
-              onPress={send}
+              onPress={() => send()}
               disabled={!draft.trim()}
               style={[styles.sendBtn, !draft.trim() && styles.sendDisabled]}
             >
@@ -174,6 +245,38 @@ const styles = StyleSheet.create({
   contextTitle: { fontSize: 15, fontWeight: '800', color: palette.text },
   contextMeta: { fontSize: 13, color: palette.textMuted, marginTop: 3, fontWeight: '600' },
   contextHint: { fontSize: 13, color: palette.primaryDeep, marginTop: 8, fontWeight: '700' },
+
+  // ---- suggested opener, employer-only ----
+  openerCard: {
+    backgroundColor: palette.cardAlt,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderStyle: 'dashed',
+    padding: 14,
+    gap: 10,
+    marginBottom: 4,
+  },
+  openerTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  openerLabel: {
+    fontSize: 11.5,
+    fontWeight: '900',
+    color: palette.primaryDeep,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  openerBody: { fontSize: 14.5, color: palette.text, lineHeight: 21 },
+  openerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  openerSend: {
+    backgroundColor: palette.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+  },
+  openerSendText: { color: palette.onGradientText, fontSize: 13.5, fontWeight: '800' },
+  openerGhost: { paddingHorizontal: 12, paddingVertical: 9 },
+  openerGhostText: { color: palette.textMuted, fontSize: 13.5, fontWeight: '700' },
+  pressed: { opacity: 0.7 },
   bubbleRow: { flexDirection: 'row' },
   rowMine: { justifyContent: 'flex-end' },
   rowTheirs: { justifyContent: 'flex-start' },

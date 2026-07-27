@@ -107,4 +107,10 @@ export interface Backend {
   sendMessage(matchId: string, body: string): Promise<Message>;
   /** Subscribe to new messages on a match. Returns an unsubscribe fn. */
   subscribeMessages(matchId: string, onMessage: (m: Message) => void): () => void;
+  /**
+   * Record that the employer discarded the suggested opener for this thread,
+   * so it is not offered again. The draft itself is derived from the
+   * employer's voice profile and never stored — this is its only state.
+   */
+  dismissOpenerDraft(matchId: string): Promise<void>;
 }
