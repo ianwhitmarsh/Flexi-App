@@ -360,9 +360,15 @@ alter table public.offers        enable row level security;
 alter table public.bookings      enable row level security;
 alter table public.push_tokens   enable row level security;
 
+-- Everything below drops before creating, so this section can be applied on
+-- its own to a project that already has the tables above it.
+
 -- offer_batches: only the owning business reads/writes.
+drop policy if exists "batches owner read"  on public.offer_batches;
 create policy "batches owner read"  on public.offer_batches for select
   using (auth.uid() = business_id);
+
+drop policy if exists "batches owner write" on public.offer_batches;
 create policy "batches owner write" on public.offer_batches for insert
   with check (auth.uid() = business_id and exists (
     select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid()
@@ -370,24 +376,33 @@ create policy "batches owner write" on public.offer_batches for insert
 
 -- offers: the offered worker reads their own; the owning business reads and
 -- creates them. Status transitions happen only inside `accept_offer`.
+drop policy if exists "offers worker read" on public.offers;
 create policy "offers worker read" on public.offers for select
   using (auth.uid() = worker_id);
+
+drop policy if exists "offers business read" on public.offers;
 create policy "offers business read" on public.offers for select using (
   exists (select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid())
 );
+
+drop policy if exists "offers business insert" on public.offers;
 create policy "offers business insert" on public.offers for insert with check (
   exists (select 1 from public.shifts s where s.id = shift_id and s.business_id = auth.uid())
 );
 
 -- bookings: visible to the two participants; only `accept_offer` writes them.
+drop policy if exists "bookings participants" on public.bookings;
 create policy "bookings participants" on public.bookings for select using (
   auth.uid() = worker_id or auth.uid() = business_id
 );
 
 -- push_tokens: you manage your own.
+drop policy if exists "push tokens self" on public.push_tokens;
 create policy "push tokens self" on public.push_tokens for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- The offer sender needs to look up recipients' tokens.
+drop policy if exists "push tokens readable by offerers" on public.push_tokens;
 create policy "push tokens readable by offerers" on public.push_tokens for select using (
   exists (
     select 1 from public.offers o
