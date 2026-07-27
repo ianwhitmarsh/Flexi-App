@@ -19,16 +19,26 @@ import { useSession } from '@/lib/session';
 import type { FillMode } from '@/lib/types';
 import { formatDate } from '@/lib/util';
 
-const FILL_MODES: { value: FillMode; label: string; hint: string }[] = [
-  {
-    value: 'standard',
-    label: 'Standard',
-    hint: 'Review everyone interested and offer the shift one by one.',
-  },
+/**
+ * `standard` is shown but not selectable: one-at-a-time exclusive offers with
+ * expiry and auto-advance are BIG-47, and nothing enforces `fill_mode` today —
+ * `sendOffers` and the RLS insert policy both ignore it. Offering the choice
+ * meant an employer picked "one by one" and got batch first-accept-wins.
+ *
+ * Re-enable it in the same change that builds BIG-47, not before.
+ */
+const FILL_MODES: { value: FillMode; label: string; hint: string; available: boolean }[] = [
   {
     value: 'race',
     label: 'Fastest fill',
     hint: 'Offer the shift to several workers at once — first to accept books it.',
+    available: true,
+  },
+  {
+    value: 'standard',
+    label: 'One at a time',
+    hint: 'Coming soon — offer the shift to one worker at a time, each with a window to accept.',
+    available: false,
   },
 ];
 
@@ -61,7 +71,8 @@ export default function NewShift() {
   const [location, setLocation] = useState(account?.business?.city ?? '');
   const [description, setDescription] = useState('');
   const [requirements, setRequirements] = useState<string[]>([]);
-  const [fillMode, setFillMode] = useState<FillMode>('standard');
+  // `race` is the only mode the app implements; see FILL_MODES above.
+  const [fillMode, setFillMode] = useState<FillMode>('race');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -168,8 +179,14 @@ export default function NewShift() {
                 return (
                   <Pressable
                     key={m.value}
-                    onPress={() => setFillMode(m.value)}
-                    style={[styles.fillMode, on && styles.fillModeOn]}
+                    onPress={() => m.available && setFillMode(m.value)}
+                    disabled={!m.available}
+                    accessibilityState={{ selected: on, disabled: !m.available }}
+                    style={[
+                      styles.fillMode,
+                      on && styles.fillModeOn,
+                      !m.available && styles.fillModeUnavailable,
+                    ]}
                   >
                     <View style={styles.fillModeTop}>
                       <Ionicons
@@ -232,6 +249,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fillModeOn: { borderColor: palette.primary, backgroundColor: palette.tintPrimarySoft },
+  fillModeUnavailable: { opacity: 0.45 },
   fillModeTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   fillModeLabel: { fontSize: 15, fontWeight: '800', color: palette.text },
   fillModeLabelOn: { color: palette.primaryDeep },

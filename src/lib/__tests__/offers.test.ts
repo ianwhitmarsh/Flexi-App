@@ -87,6 +87,37 @@ async function setupOfferedShift() {
   return { backend, shift, workerA, workerB, batch, offerA, offerB };
 }
 
+/**
+ * BIG-78. `fill_mode` is stored but enforced nowhere — `sendOffers` and the RLS
+ * insert policy both ignore it — so the app must not offer a mode it does not
+ * implement. `race` is that mode until BIG-47 builds the other one.
+ */
+describe('fill mode', () => {
+  it('seeds demo shifts as race, the mode the app actually runs', async () => {
+    await AsyncStorage.clear();
+    const backend = new MockBackend();
+    await backend.signIn('biz_bluebottle@demo.flexi', 'demo');
+
+    const shifts = await backend.myShifts();
+    expect(shifts.length).toBeGreaterThan(0);
+    expect(shifts.every((s) => s.fillMode === 'race')).toBe(true);
+  });
+
+  it('still accepts and stores a standard shift, so existing rows keep working', async () => {
+    const { backend } = await setupOfferedShift();
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+
+    // NG-2: nothing migrates or rejects `standard`; it simply behaves as race.
+    const legacy = await backend.createShift(shiftInput({ title: 'Legacy', fillMode: 'standard' }));
+    expect(legacy.fillMode).toBe('standard');
+
+    const worker = await signUpWorker(backend, WORKER_C, 'Cal Worker');
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    const batch = await backend.sendOffers(legacy.id, [worker]);
+    expect(batch.offers).toHaveLength(1);
+  });
+});
+
 describe('sendOffers', () => {
   it('creates one batch and one sent offer per worker', async () => {
     const { batch, shift, offerA, offerB } = await setupOfferedShift();
