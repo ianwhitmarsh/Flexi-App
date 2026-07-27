@@ -1,17 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ShiftCard, WorkerCard } from '@/components/cards';
-import { MatchModal } from '@/components/MatchModal';
+import { ShiftCard } from '@/components/cards';
+import { InterestSentModal } from '@/components/InterestSentModal';
 import { OfferCard } from '@/components/OfferCard';
 import { SwipeDeck, type SwipeDir } from '@/components/SwipeDeck';
-import { Button, EmptyState, Screen } from '@/components/ui';
-import { palette } from '@/constants/theme';
+import { Avatar, Button, EmptyState, Screen } from '@/components/ui';
+import { palette, radius } from '@/constants/theme';
 import { useSession } from '@/lib/session';
 import type { Booking, InterestedWorker, Match, Offer, Shift } from '@/lib/types';
 import { formatDate, formatTimeRange } from '@/lib/util';
+
+/** Interested workers bucketed under the shift they liked, newest shift first. */
+function groupByShift(rows: InterestedWorker[]) {
+  const groups = new Map<string, { shift: Shift; rows: InterestedWorker[] }>();
+  for (const row of rows) {
+    const existing = groups.get(row.shift.id);
+    if (existing) existing.rows.push(row);
+    else groups.set(row.shift.id, { shift: row.shift, rows: [row] });
+  }
+  return [...groups.values()];
+}
 
 export default function Discover() {
   const { account, backend, isLive } = useSession();
@@ -19,18 +30,18 @@ export default function Discover() {
   const role = account?.role;
 
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [workers, setWorkers] = useState<InterestedWorker[]>([]);
+  const [interested, setInterested] = useState<InterestedWorker[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [match, setMatch] = useState<Match | null>(null);
+  const [thread, setThread] = useState<Match | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       if (role === 'business') {
-        setWorkers(await backend.businessDeck());
+        setInterested(await backend.listInterested());
       } else {
         const [deck, myOffers, myBookings] = await Promise.all([
           backend.workerDeck(),
@@ -52,13 +63,11 @@ export default function Discover() {
     }, [load]),
   );
 
+  const groups = useMemo(() => groupByShift(interested), [interested]);
+
   const onShiftSwipe = async (shift: Shift, dir: SwipeDir) => {
     const res = await backend.swipeShift(shift.id, dir);
-    if (res.matched && res.match) setMatch(res.match);
-  };
-  const onWorkerSwipe = async (card: InterestedWorker, dir: SwipeDir) => {
-    const res = await backend.swipeWorker(card.shift.id, card.worker.id, dir);
-    if (res.matched && res.match) setMatch(res.match);
+    if (res.interested && res.thread) setThread(res.thread);
   };
 
   const acceptOffer = async (offer: Offer) => {
@@ -94,19 +103,24 @@ export default function Discover() {
     }
   };
 
-  const goToMatch = () => {
-    const id = match?.id;
-    setMatch(null);
+  const openThread = () => {
+    const id = thread?.id;
+    setThread(null);
     if (id) router.push(`/match/${id}`);
+  };
+
+  const messageWorker = (card: InterestedWorker) => {
+    if (card.threadId) router.push(`/match/${card.threadId}`);
+    else Alert.alert('No conversation yet', 'This conversation could not be opened. Pull to refresh and try again.');
   };
 
   return (
     <Screen edges={['top']}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>{role === 'business' ? 'Applicants' : 'Discover'}</Text>
+          <Text style={styles.title}>{role === 'business' ? 'Interested' : 'Discover'}</Text>
           <Text style={styles.subtitle}>
-            {role === 'business' ? 'Workers who liked your shifts' : 'Open shifts near you'}
+            {role === 'business' ? 'Workers who want your shifts' : 'Open shifts near you'}
           </Text>
         </View>
         {!isLive && (
@@ -159,19 +173,67 @@ export default function Discover() {
             <ActivityIndicator size="large" color={palette.primary} />
           </View>
         ) : role === 'business' ? (
-          <SwipeDeck<InterestedWorker>
-            data={workers}
-            keyExtractor={(c) => `${c.shift.id}:${c.worker.id}`}
-            renderCard={(c) => <WorkerCard card={c} />}
-            onSwipe={onWorkerSwipe}
-            renderEmpty={() => (
+          groups.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: 'center' }}>
               <EmptyState
                 icon="people-outline"
-                title="No applicants yet"
-                subtitle="When workers swipe on your open shifts, they'll show up here to review. Post more shifts to get seen."
+                title="Nobody interested yet"
+                subtitle="When workers swipe right on your open shifts they'll show up here, grouped by shift. Post more shifts to get seen."
               />
-            )}
-          />
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.groupList} showsVerticalScrollIndicator={false}>
+              {groups.map(({ shift, rows }) => (
+                <View key={shift.id} style={styles.group}>
+                  <View style={styles.groupHeader}>
+                    <Text style={styles.groupTitle} numberOfLines={1}>
+                      {shift.title}
+                    </Text>
+                    <Text style={styles.groupMeta}>
+                      {formatDate(shift.date)} · {rows.length} interested
+                    </Text>
+                  </View>
+
+                  {rows.map((card) => (
+                    <View key={`${shift.id}:${card.worker.id}`} style={styles.row}>
+                      <Avatar name={card.worker.fullName} size={46} />
+                      <View style={styles.rowBody}>
+                        <Text style={styles.name} numberOfLines={1}>
+                          {card.worker.fullName}
+                        </Text>
+                        {card.worker.headline ? (
+                          <Text style={styles.headline} numberOfLines={1}>
+                            {card.worker.headline}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.years}>
+                          {card.worker.yearsExperience} yr
+                          {card.worker.yearsExperience === 1 ? '' : 's'} experience
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => messageWorker(card)}
+                        style={({ pressed }) => [styles.messageBtn, pressed && styles.pressed]}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Message ${card.worker.fullName}`}
+                      >
+                        <Ionicons name="chatbubble-ellipses" size={16} color={palette.onGradientText} />
+                        <Text style={styles.messageText}>Message</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+
+                  <Button
+                    title="Send offer"
+                    variant="secondary"
+                    icon="paper-plane"
+                    onPress={() => router.push(`/shift/${shift.id}/interested`)}
+                    style={styles.offerBtn}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+          )
         ) : (
           <SwipeDeck<Shift>
             data={shifts}
@@ -192,7 +254,7 @@ export default function Discover() {
         )}
       </View>
 
-      <MatchModal match={match} onMessage={goToMatch} onKeepSwiping={() => setMatch(null)} />
+      <InterestSentModal thread={thread} onMessage={openThread} onKeepSwiping={() => setThread(null)} />
     </Screen>
   );
 }
@@ -237,4 +299,28 @@ const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyWrap: { alignItems: 'center' },
   refreshBtn: { marginTop: 8, minWidth: 160 },
+
+  // ---- employer Interested queue ----
+  groupList: { paddingBottom: 16, gap: 16 },
+  group: { backgroundColor: palette.card, borderRadius: radius.lg, padding: 14, gap: 10 },
+  groupHeader: { gap: 2 },
+  groupTitle: { fontSize: 17, fontWeight: '900', color: palette.text, letterSpacing: -0.3 },
+  groupMeta: { fontSize: 12.5, color: palette.textMuted, fontWeight: '600' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  rowBody: { flex: 1, gap: 1 },
+  name: { fontSize: 15.5, fontWeight: '800', color: palette.text },
+  headline: { fontSize: 13, color: palette.textMuted },
+  years: { fontSize: 12.5, color: palette.textFaint, fontWeight: '600' },
+  messageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: palette.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+  },
+  messageText: { color: palette.onGradientText, fontSize: 13, fontWeight: '800' },
+  pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
+  offerBtn: { marginTop: 2 },
 });

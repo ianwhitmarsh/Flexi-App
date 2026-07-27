@@ -56,7 +56,7 @@ export default function MyShifts() {
           <EmptyState
             icon="briefcase-outline"
             title="No shifts yet"
-            subtitle="Post your first open shift and start matching with local workers."
+            subtitle="Post your first open shift and start hearing from local workers."
           />
           <Button title="Post a shift" icon="add-circle" onPress={() => router.push('/shift/new')} style={styles.cta} />
         </View>

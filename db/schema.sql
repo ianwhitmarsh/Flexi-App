@@ -76,6 +76,10 @@ create table if not exists public.swipes (
   unique (swiper_id, role, shift_id, worker_id)
 );
 
+-- Conversation threads. Named `matches` for continuity: every `messages` row
+-- points at it, so renaming the table would orphan existing chat history. A
+-- row here means a worker showed interest in a shift and a conversation is
+-- open, not that anything was agreed.
 create table if not exists public.matches (
   id               uuid primary key default gen_random_uuid(),
   shift_id         uuid not null references public.shifts (id) on delete cascade,
@@ -111,6 +115,14 @@ create index if not exists messages_match_idx on public.messages (match_id);
 -- SECURITY DEFINER so it can insert the match row regardless of who swiped.
 -- ---------------------------------------------------------------------------
 
+-- A worker's like opens a conversation thread with the employer. It does not
+-- mean the two sides agreed anything: nothing is agreed until an offer is sent
+-- and accepted, which is the single commit point for money.
+--
+-- This replaces the mutual-like matcher. Business-role swipes no longer happen
+-- (the employer reviews an Interested list instead of swiping a deck), so they
+-- are ignored rather than removed — dropping the branch would strand the
+-- `role = 'business'` rows already in `swipes`.
 create or replace function public.on_swipe()
 returns trigger
 language plpgsql
@@ -119,9 +131,8 @@ set search_path = public
 as $$
 declare
   v_business uuid;
-  v_other_likes int;
 begin
-  if new.direction = 'pass' then
+  if new.direction = 'pass' or new.role <> 'worker' then
     return new;
   end if;
 
@@ -130,29 +141,11 @@ begin
     return new;
   end if;
 
-  if new.role = 'worker' then
-    -- Worker liked the shift; has the business already liked this worker?
-    select count(*) into v_other_likes
-    from public.swipes
-    where role = 'business'
-      and shift_id = new.shift_id
-      and worker_id = new.worker_id
-      and direction <> 'pass';
-  else
-    -- Business liked the worker; has the worker already liked this shift?
-    select count(*) into v_other_likes
-    from public.swipes
-    where role = 'worker'
-      and shift_id = new.shift_id
-      and worker_id = new.worker_id
-      and direction <> 'pass';
-  end if;
-
-  if v_other_likes > 0 then
-    insert into public.matches (shift_id, worker_id, business_id)
-    values (new.shift_id, new.worker_id, v_business)
-    on conflict (shift_id, worker_id) do nothing;
-  end if;
+  -- Idempotent: a worker re-liking the same shift reuses the open thread
+  -- rather than starting a second one.
+  insert into public.matches (shift_id, worker_id, business_id)
+  values (new.shift_id, new.worker_id, v_business)
+  on conflict (shift_id, worker_id) do nothing;
 
   return new;
 end;
@@ -162,6 +155,20 @@ drop trigger if exists trg_on_swipe on public.swipes;
 create trigger trg_on_swipe
   after insert on public.swipes
   for each row execute function public.on_swipe();
+
+-- Backfill: likes recorded while threads only opened on a mutual like have no
+-- thread, so the employer's Message action would have nowhere to go. Open one
+-- per outstanding like. Idempotent — `on conflict` leaves existing threads and
+-- their messages untouched.
+insert into public.matches (shift_id, worker_id, business_id, created_at)
+select distinct on (sw.shift_id, sw.worker_id)
+       sw.shift_id, sw.worker_id, s.business_id, sw.created_at
+from public.swipes sw
+join public.shifts s on s.id = sw.shift_id
+where sw.role = 'worker'
+  and sw.direction <> 'pass'
+order by sw.shift_id, sw.worker_id, sw.created_at
+on conflict (shift_id, worker_id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- Row-level security

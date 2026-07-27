@@ -98,13 +98,27 @@ export interface Account {
   business?: Business;
 }
 
-/** A card in the business deck: a worker who liked one of my shifts. */
+/** A worker who registered interest in one of my shifts. */
 export interface InterestedWorker {
   shift: Shift;
   worker: WorkerProfile;
   swipedAt: string;
+  /**
+   * The conversation thread the worker's like opened, so the employer's
+   * "Message" action has somewhere to go. Optional only to tolerate rows
+   * created before threads opened on first like.
+   */
+  threadId?: string;
 }
 
+/**
+ * A conversation thread between one worker and one business about one shift.
+ *
+ * Still called `Match` (and stored in the `matches` table) because renaming
+ * would orphan every existing `messages.match_id`. It no longer means the two
+ * sides agreed anything — a worker's like alone opens it. Nothing is agreed
+ * until an offer is sent and accepted.
+ */
 export interface Match {
   id: string;
   shiftId: string;
@@ -127,9 +141,14 @@ export interface Message {
   createdAt: string;
 }
 
+/**
+ * Outcome of a worker swiping a shift. A like registers interest and opens a
+ * conversation thread; it never books anything and never means both sides
+ * agreed. `interested` is false for a pass.
+ */
 export interface SwipeResult {
-  matched: boolean;
-  match?: Match;
+  interested: boolean;
+  thread?: Match;
 }
 
 // ---- race-mode offers ----
