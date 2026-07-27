@@ -584,17 +584,66 @@ create policy "push tokens readable by offerers" on public.push_tokens for selec
 );
 
 -- ---------------------------------------------------------------------------
--- Storage bucket for résumés (public read, owner write).
+-- Storage bucket for résumés — private, owner write, narrow read.
+--
+-- A résumé carries a legal name, employment history and usually a phone number.
+-- This bucket used to be `public = true` with `select using (bucket_id =
+-- 'resumes')` — a predicate true for every caller, signed in or not — so every
+-- résumé was readable by anyone holding the URL, forever. The URLs were not
+-- secret either: they were stored in `worker_profiles.resume_url`, which every
+-- signed-in user can read.
+--
+-- Reading is now the same rule as seeing the profile itself (BIG-77): the
+-- worker, or an employer with a live connection to them. The app mints
+-- short-lived signed URLs instead of storing permanent ones.
 -- ---------------------------------------------------------------------------
 
 insert into storage.buckets (id, name, public)
-values ('resumes', 'resumes', true)
-on conflict (id) do nothing;
+values ('resumes', 'resumes', false)
+on conflict (id) do update set public = false;
 
-create policy "resumes public read" on storage.objects for select using (bucket_id = 'resumes');
+-- The first path segment is the owning worker's uid; `uploadResume` writes
+-- `<uid>/<timestamp>-<name>`.
+drop policy if exists "resumes public read" on storage.objects;
+drop policy if exists "resumes readable by owner or connected employer" on storage.objects;
+create policy "resumes readable by owner or connected employer" on storage.objects for select using (
+  bucket_id = 'resumes'
+  and (
+    -- The worker's own file.
+    (storage.foldername(name))[1] = auth.uid()::text
+    -- Or an employer this worker is connected to, by the same test
+    -- `getWorkerProfile` applies: interest in, an offer on, or a booking for
+    -- one of the caller's own shifts.
+    or exists (
+      select 1
+      from public.swipes sw
+      join public.shifts s on s.id = sw.shift_id
+      where sw.role = 'worker'
+        and sw.direction <> 'pass'
+        and sw.worker_id::text = (storage.foldername(name))[1]
+        and s.business_id = auth.uid()
+    )
+    or exists (
+      select 1
+      from public.offers o
+      join public.shifts s on s.id = o.shift_id
+      where o.worker_id::text = (storage.foldername(name))[1]
+        and s.business_id = auth.uid()
+    )
+    or exists (
+      select 1
+      from public.bookings b
+      where b.worker_id::text = (storage.foldername(name))[1]
+        and b.business_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "resumes owner write" on storage.objects;
 create policy "resumes owner write" on storage.objects for insert with check (
   bucket_id = 'resumes' and (storage.foldername(name))[1] = auth.uid()::text
 );
+drop policy if exists "resumes owner update" on storage.objects;
 create policy "resumes owner update" on storage.objects for update using (
   bucket_id = 'resumes' and (storage.foldername(name))[1] = auth.uid()::text
 );

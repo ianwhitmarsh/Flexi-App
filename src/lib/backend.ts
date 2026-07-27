@@ -41,7 +41,20 @@ export interface Backend {
   setRole(role: Role): Promise<void>;
   saveWorkerProfile(data: Omit<WorkerProfile, 'id'>): Promise<WorkerProfile>;
   saveBusinessProfile(data: Omit<Business, 'id'>): Promise<Business>;
+  /**
+   * Store a résumé and return the reference to keep on the profile. That
+   * reference is a storage **path**, not a URL — résumés live in a private
+   * bucket and are only ever reachable through a short-lived signed URL.
+   */
   uploadResume(file: ResumeFile): Promise<{ url: string; name: string }>;
+  /**
+   * Turn a stored résumé reference into something openable, valid for a few
+   * minutes. Returns null when the caller may not read it.
+   *
+   * Takes whatever is on the profile: a path, a legacy public URL from before
+   * the bucket was made private, or a device-local URI in demo mode.
+   */
+  resolveResumeUrl(ref: string): Promise<string | null>;
 
   // ---- shifts ----
   /** Open shifts the current worker hasn't swiped yet (their deck). */

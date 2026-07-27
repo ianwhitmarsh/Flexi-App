@@ -362,6 +362,12 @@ export class MockBackend implements Backend {
     return { url: file.uri, name: file.name };
   }
 
+  async resolveResumeUrl(ref: string): Promise<string | null> {
+    // Demo résumés are device-local URIs. Nothing to sign, and deliberately no
+    // network call — the demo has to work with no project configured.
+    return ref || null;
+  }
+
   // ---- shifts ----
   async workerDeck(): Promise<Shift[]> {
     await this.load();

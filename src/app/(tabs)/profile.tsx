@@ -23,10 +23,17 @@ export default function Profile() {
   const openResume = async () => {
     if (!worker?.resumeUrl) return;
     try {
-      if (worker.resumeUrl.startsWith('http')) {
-        await WebBrowser.openBrowserAsync(worker.resumeUrl);
+      // Never opened directly: what is stored is a private storage path, and
+      // the signed URL that makes it readable is minted here and expires.
+      const url = await backend.resolveResumeUrl(worker.resumeUrl);
+      if (!url) {
+        Alert.alert('Résumé unavailable', 'This résumé could not be opened right now.');
+        return;
+      }
+      if (url.startsWith('http')) {
+        await WebBrowser.openBrowserAsync(url);
       } else {
-        await Linking.openURL(worker.resumeUrl);
+        await Linking.openURL(url);
       }
     } catch {
       Alert.alert('Résumé', worker.resumeName ?? 'Saved résumé');
