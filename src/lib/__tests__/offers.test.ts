@@ -236,6 +236,75 @@ describe('acceptOffer', () => {
   });
 });
 
+// BIG-62. An end that is not after the start means the shift crosses midnight,
+// so part of its window belongs to the next calendar day.
+describe('overnight shifts', () => {
+  /** 2026-07-31 22:00 → 2026-08-01 02:00. */
+  const OVERNIGHT: Partial<ShiftInput> = {
+    title: 'Night Porter',
+    date: '2026-07-31',
+    startTime: '22:00',
+    endTime: '02:00',
+  };
+
+  /** The fixture, plus a second race-mode shift offered to worker A. */
+  async function withSecondShift(over: Partial<ShiftInput>) {
+    const ctx = await setupOfferedShift();
+    await ctx.backend.signIn(BUSINESS.email, BUSINESS.password);
+    const shift = await ctx.backend.createShift(shiftInput(over));
+    const batch = await ctx.backend.sendOffers(shift.id, [ctx.workerA]);
+    return { ...ctx, second: shift, secondOffer: batch.offers[0] };
+  }
+
+  it('refuses a next-morning shift that runs into the overnight tail', async () => {
+    const { backend, workerA, secondOffer } = await withSecondShift(OVERNIGHT);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(secondOffer.id)).status).toBe('accepted');
+
+    // 2026-08-01 00:00–06:00 collides with the 22:00 → 02:00 tail. Before
+    // BIG-62 the overnight span collapsed to empty and this booked.
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    const early = await backend.createShift(
+      shiftInput({ title: 'Early Prep', date: '2026-08-01', startTime: '00:00', endTime: '06:00' }),
+    );
+    const batch = await backend.sendOffers(early.id, [workerA]);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(batch.offers[0].id)).status).toBe('overlap');
+    expect(await backend.listMyBookings()).toHaveLength(1);
+  });
+
+  it('refuses a same-day shift that runs into the overnight head', async () => {
+    const { backend, workerA, secondOffer } = await withSecondShift(OVERNIGHT);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    await backend.acceptOffer(secondOffer.id);
+
+    // 2026-07-31 20:00–23:00 collides with the 22:00 start on the same date.
+    await backend.signIn(BUSINESS.email, BUSINESS.password);
+    const evening = await backend.createShift(
+      shiftInput({ title: 'Evening Prep', date: '2026-07-31', startTime: '20:00', endTime: '23:00' }),
+    );
+    const batch = await backend.sendOffers(evening.id, [workerA]);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(batch.offers[0].id)).status).toBe('overlap');
+    expect(await backend.listMyBookings()).toHaveLength(1);
+  });
+
+  it('still allows a shift that clears the overnight window', async () => {
+    const { backend, offerA, secondOffer } = await withSecondShift(OVERNIGHT);
+
+    await backend.signIn(WORKER_A.email, WORKER_A.password);
+    expect((await backend.acceptOffer(secondOffer.id)).status).toBe('accepted');
+
+    // The fixture shift is 2026-08-01 09:00–17:00, well clear of the 02:00 end.
+    expect((await backend.acceptOffer(offerA.id)).status).toBe('accepted');
+    expect(await backend.listMyBookings()).toHaveLength(2);
+  });
+});
+
 // BIG-59.
 describe('acceptOffer preconditions', () => {
   it('closes the shift, so other workers stop seeing it in the deck', async () => {

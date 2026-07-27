@@ -260,12 +260,14 @@ create table if not exists public.bookings (
   created_at   timestamptz not null default now()
 );
 
--- The shift's window as a range, used by the overlap constraint below.
+-- The shift's window as a range, used by the overlap constraint below and by
+-- the overlap check in `accept_offer` — one definition so the two cannot
+-- disagree.
 --
--- `start_time` / `end_time` are free text and nothing validates that the end
--- follows the start. Such a shift yields the empty range, which overlaps
--- nothing — matching the time comparison in `accept_offer`, which never
--- reports a clash for one either.
+-- `start_time` / `end_time` are free text and nothing validates their order. An
+-- end that is not after the start means the shift runs past midnight, so the
+-- end belongs to the following day: 22:00–02:00 is a four-hour overnight shift,
+-- not an empty one.
 create or replace function public.shift_slot(p_date date, p_start text, p_end text)
 returns tsrange
 language sql
@@ -273,7 +275,10 @@ immutable
 as $$
   select tsrange(
     p_date + p_start::time,
-    greatest(p_date + p_end::time, p_date + p_start::time),
+    case when p_end::time > p_start::time
+         then p_date + p_end::time
+         else p_date + 1 + p_end::time
+    end,
     '[)'
   );
 $$;
@@ -291,10 +296,14 @@ do $$ begin
   alter table public.bookings add column slot tsrange;
 exception when duplicate_column then null; end $$;
 
+-- Recompute rows the column is missing, and rows an earlier definition of
+-- `shift_slot` collapsed to the empty range (every overnight shift booked
+-- before BIG-62). Empty ranges overlap nothing, so those bookings are invisible
+-- to the constraint until they are rebuilt.
 update public.bookings b
    set slot = public.shift_slot(s.date, s.start_time, s.end_time)
   from public.shifts s
- where s.id = b.shift_id and b.slot is null;
+ where s.id = b.shift_id and (b.slot is null or isempty(b.slot));
 
 alter table public.bookings alter column slot set not null;
 
@@ -391,16 +400,18 @@ begin
     raise exception 'This shift is no longer open';
   end if;
 
-  -- Already booked elsewhere during this window? Times are HH:MM text, so cast
-  -- to `time` rather than comparing strings ("9:00" would sort after "10:00").
+  v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time);
+
+  -- Already booked elsewhere during this window? Compared as ranges, using the
+  -- same `shift_slot` the constraint below hangs on, so the friendly check and
+  -- the enforced one always agree. Not restricted to the same calendar date:
+  -- an overnight shift starting on day N runs into day N+1.
   select count(*) into v_overlaps
   from public.bookings b
   join public.shifts s on s.id = b.shift_id
   where b.worker_id = v_me
     and b.status = 'confirmed'
-    and s.date = v_shift.date
-    and s.start_time::time < v_shift.end_time::time
-    and s.end_time::time   > v_shift.start_time::time;
+    and public.shift_slot(s.date, s.start_time, s.end_time) && v_slot;
   if v_overlaps > 0 then
     return jsonb_build_object('status', 'overlap');
   end if;
@@ -409,8 +420,6 @@ begin
   -- overlapping shift concurrently: that call locked a different shift row.
   -- `bookings_no_worker_overlap` is what actually decides it, and whichever
   -- insert lands second gets the same `overlap` answer as the sequential case.
-  v_slot := public.shift_slot(v_shift.date, v_shift.start_time, v_shift.end_time);
-
   begin
     insert into public.bookings (shift_id, worker_id, business_id, offer_id, slot)
     values (v_offer.shift_id, v_me, v_shift.business_id, v_offer.id, v_slot)
