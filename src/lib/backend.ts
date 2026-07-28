@@ -14,6 +14,7 @@ import type {
   Message,
   Offer,
   OfferBatch,
+  PayrollStatus,
   ResumeFile,
   Role,
   Session,
@@ -112,6 +113,19 @@ export interface Backend {
   listMyBookings(): Promise<Booking[]>;
   /** Store an Expo push token for the signed-in user. */
   registerPushToken(token: string): Promise<void>;
+
+  // ---- payroll onboarding ----
+  /**
+   * Open (or reuse) the worker's payroll record and return the provider's
+   * hosted onboarding URL for W-4, I-9 and direct deposit. None of that data
+   * passes through Flexi — the worker fills it in on the provider's own flow.
+   */
+  startPayrollSetup(): Promise<{ status: PayrollStatus; onboardingUrl: string }>;
+  /**
+   * Re-read payroll status from the provider and persist it on the profile.
+   * Called after the worker returns from the hosted flow.
+   */
+  refreshPayrollStatus(): Promise<PayrollStatus>;
 
   // ---- matches + chat ----
   listMatches(): Promise<Match[]>;

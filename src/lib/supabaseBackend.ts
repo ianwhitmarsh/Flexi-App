@@ -8,6 +8,8 @@ import { decode as decodeBase64 } from 'base64-arraybuffer';
 
 import { MAX_OFFERS_PER_BATCH, type Backend } from './backend';
 import { RESUME_BUCKET } from './config';
+import { getPayroll } from './getPayroll';
+import type { PayrollStatus } from './payroll';
 import { sendOfferPush } from './push';
 import { getSupabase } from './supabaseClient';
 import { hasShiftEnded } from './util';
@@ -125,6 +127,8 @@ function toWorker(row: any): WorkerProfile {
     avatarUrl: row.avatar_url ?? undefined,
     resumeUrl: row.resume_url ?? undefined,
     resumeName: row.resume_name ?? undefined,
+    payrollStatus: (row.payroll_status ?? 'not_started') as PayrollStatus,
+    payrollEmployeeId: row.payroll_employee_id ?? undefined,
   };
 }
 
@@ -259,6 +263,10 @@ export class SupabaseBackend implements Backend {
       avatar_url: data.avatarUrl ?? null,
       resume_url: data.resumeUrl ?? null,
       resume_name: data.resumeName ?? null,
+      // `payroll_status` and `payroll_employee_id` are deliberately absent.
+      // `upsert` only SETs the columns present in the row, so leaving them out
+      // preserves whatever the provider flow already recorded — editing a
+      // profile must never reset payroll progress.
     };
     const { data: saved, error } = await this.sb
       .from('worker_profiles')
@@ -689,6 +697,53 @@ export class SupabaseBackend implements Backend {
       .from('push_tokens')
       .upsert({ user_id: id, token, updated_at: new Date().toISOString() });
     if (error) throw error;
+  }
+
+  // ---- payroll onboarding ----
+  async startPayrollSetup(): Promise<{ status: PayrollStatus; onboardingUrl: string }> {
+    const id = await this.uid();
+    const { data: profile, error } = await this.sb
+      .from('worker_profiles')
+      .select('full_name, city, payroll_employee_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!profile) throw new Error('Finish your worker profile first.');
+
+    const payroll = getPayroll();
+    const employee = await payroll.createEmployee({
+      workerId: id,
+      fullName: profile.full_name,
+      email: (await this.getSession())?.email ?? '',
+      workState: (profile.city ?? '').split(',').pop()?.trim(),
+    });
+    const onboardingUrl = await payroll.getOnboardingUrl(employee.employeeId);
+
+    const { error: saveErr } = await this.sb
+      .from('worker_profiles')
+      .update({ payroll_employee_id: employee.employeeId, payroll_status: employee.status })
+      .eq('id', id);
+    if (saveErr) throw saveErr;
+    return { status: employee.status, onboardingUrl };
+  }
+
+  async refreshPayrollStatus(): Promise<PayrollStatus> {
+    const id = await this.uid();
+    const { data: profile } = await this.sb
+      .from('worker_profiles')
+      .select('payroll_employee_id, payroll_status')
+      .eq('id', id)
+      .maybeSingle();
+    const employeeId = profile?.payroll_employee_id;
+    if (!employeeId) return (profile?.payroll_status ?? 'not_started') as PayrollStatus;
+
+    const status = await getPayroll().getEmployeeStatus(employeeId);
+    const { error } = await this.sb
+      .from('worker_profiles')
+      .update({ payroll_status: status })
+      .eq('id', id);
+    if (error) throw error;
+    return status;
   }
 
   // ---- matches + chat ----

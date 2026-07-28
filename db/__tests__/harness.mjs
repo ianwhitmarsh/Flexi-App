@@ -59,6 +59,12 @@ export async function seed(db) {
     insert into public.worker_profiles
       (id, full_name, headline, bio, city, skills, years_experience, availability)
       values ('${worker}', 'María Reyes', 'Barista', '', 'Dallas', '{}', 2, '{}');
+    -- accept_offer refuses a worker who is not payroll-ready (BIG-73), and
+    -- payroll_status defaults to not_started. These suites are about shift
+    -- timing and overlap, so the fixture is somebody who could actually take
+    -- the shift; the gate itself is covered by payroll.test.ts.
+    -- (No backticks in here: this is inside a JS template literal.)
+    update public.worker_profiles set payroll_status = 'ready' where id = '${worker}';
   `);
   return { employer, worker };
 }

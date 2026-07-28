@@ -150,10 +150,12 @@ describe('getWorkerProfile', () => {
     await backend.signIn(BIZ.email, BIZ.password);
     const batch = await backend.sendOffers(shift.id, [ada]);
 
-    // No payroll setup here: this branch is cut from `main`, and the payroll
-    // gate is still on PR #19. When that merges this call needs it, exactly as
-    // `offers.test.ts` does.
+    // The payroll gate (BIG-73) refuses anyone who is not `ready`, so a
+    // fixture that means to book has to finish setup first. This is the
+    // follow-up the note here asked for when that PR landed.
     await backend.signIn(ADA.email, ADA.password);
+    await backend.startPayrollSetup();
+    await backend.refreshPayrollStatus();
     expect((await backend.acceptOffer(batch.offers[0].id)).status).toBe('accepted');
 
     await backend.signIn(BIZ.email, BIZ.password);
