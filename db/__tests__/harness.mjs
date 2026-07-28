@@ -76,8 +76,8 @@ export async function offerShift(db, { employer, worker, date, start, end, timez
   const offer = nextId();
   await db.query(
     `insert into public.shifts
-       (id, business_id, title, role, pay_rate, date, start_time, end_time, timezone)
-     values ($1, $2, 'Shift', 'Barista', 20, $3::date, $4, $5, $6)`,
+       (id, business_id, title, role, pay_rate_cents, date, start_time, end_time, timezone)
+     values ($1, $2, 'Shift', 'Barista', 2000, $3::date, $4, $5, $6)`,
     [shift, employer, date, start, end, timezone],
   );
   await db.query(

@@ -13,7 +13,7 @@ import { palette, radius } from '@/constants/theme';
 import { MAX_OFFERS_PER_BATCH } from '@/lib/backend';
 import { useSession } from '@/lib/session';
 import type { InterestedWorker, Shift } from '@/lib/types';
-import { formatDate, formatTimeRange } from '@/lib/util';
+import { formatDate, formatRate, formatTimeRange } from '@/lib/util';
 
 export default function InterestedQueue() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -94,7 +94,7 @@ export default function InterestedQueue() {
           <Text style={styles.stripText}>{formatTimeRange(shift.startTime, shift.endTime)}</Text>
           <View style={styles.payPill}>
             <Text style={styles.payText}>
-              ${shift.payRate}/{shift.payType}
+              {formatRate(shift.payRateCents)}/{shift.payType}
             </Text>
           </View>
         </View>

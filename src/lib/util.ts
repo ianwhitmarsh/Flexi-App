@@ -179,6 +179,52 @@ export function isShiftLive(
   return shift.status === 'open' && !hasShiftEnded(shift, now);
 }
 
+// ---- money ----
+//
+// Every money value is an integer count of cents. Never a float: 0.1 + 0.2 is
+// not 0.3 in binary floating point, and a rate is multiplied by hours and then
+// by a markup before anybody is paid, so the error compounds exactly where it
+// matters least acceptably.
+//
+// Dollars exist only at the two edges — what somebody types, and what somebody
+// reads. These are those two edges.
+
+/**
+ * Parse a typed dollar amount into cents, or null if it is not money.
+ *
+ * `Math.round` is doing real work: `16.15 * 100` is `1614.9999999999998` in
+ * binary floating point, so truncating would quietly pay a worker a cent an
+ * hour less than they agreed to. That is not a rare corner — 71 of the 1501
+ * rates between $15.00 and $30.00 behave this way.
+ *
+ * Anything with more precision than cents is rejected rather than rounded,
+ * because silently turning the 18.999 somebody typed into $19.00 is a worse
+ * outcome than telling them.
+ */
+export function dollarsToCents(input: string): number | null {
+  const text = input.trim().replace(/^\$/, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  return Math.round(Number(text) * 100);
+}
+
+/**
+ * A rate for display: `$22` for whole dollars, `$18.50` when there are cents.
+ *
+ * Whole dollars stay bare so every rate in the app reads exactly as it did
+ * when these were stored as numbers — `$22/hour`, not `$22.00/hour`. The cents
+ * case gains the second digit it was always missing: a rate of 18.5 used to
+ * render as `$18.5`, which is not how money is written.
+ */
+export function formatRate(cents: number): string {
+  const dollars = cents / 100;
+  return cents % 100 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+}
+
+/** Cents back into the plain dollar string a text input should hold. */
+export function centsToInput(cents: number): string {
+  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
+}
+
 export function timeAgo(iso?: string): string {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();

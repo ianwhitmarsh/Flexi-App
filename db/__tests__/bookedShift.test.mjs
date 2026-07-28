@@ -43,7 +43,7 @@ describe('once a worker holds a confirmed booking', () => {
   const change = (sql, params) => db.query(`update public.shifts set ${sql} where id = $1`, params);
 
   it('refuses a change to the pay rate', async () => {
-    await assert.rejects(() => change('pay_rate = 12', [shift]), REFUSED);
+    await assert.rejects(() => change('pay_rate_cents = 1200', [shift]), REFUSED);
   });
 
   it('refuses a change to the pay type', async () => {
@@ -100,8 +100,8 @@ describe('while nobody is booked', () => {
     const day = await futureJuly(db);
     const r = await db.query(
       `insert into public.shifts
-         (business_id, title, role, pay_rate, date, start_time, end_time, timezone)
-       values ($1, 'Barista', 'Barista', 20, $2::date, '09:00', '17:00', 'America/Chicago')
+         (business_id, title, role, pay_rate_cents, date, start_time, end_time, timezone)
+       values ($1, 'Barista', 'Barista', 2000, $2::date, '09:00', '17:00', 'America/Chicago')
        returning id`,
       [employer, day],
     );
@@ -113,13 +113,13 @@ describe('while nobody is booked', () => {
     // privilege would have broken exactly this, which is why it is a trigger.
     await db.query(
       `update public.shifts
-          set pay_rate = 22, pay_type = 'shift', date = date + 1,
+          set pay_rate_cents = 2200, pay_type = 'shift', date = date + 1,
               start_time = '08:00', end_time = '16:00', timezone = 'America/New_York'
         where id = $1`,
       [shift],
     );
-    const r = await db.query(`select pay_rate, start_time, timezone from public.shifts where id = $1`, [shift]);
-    assert.equal(Number(r.rows[0].pay_rate), 22);
+    const r = await db.query(`select pay_rate_cents, start_time, timezone from public.shifts where id = $1`, [shift]);
+    assert.equal(r.rows[0].pay_rate_cents, 2200);
     assert.equal(r.rows[0].start_time, '08:00');
     assert.equal(r.rows[0].timezone, 'America/New_York');
   });
@@ -149,8 +149,8 @@ describe('while nobody is booked', () => {
          from public.shifts where id = $1`,
       [shift, worker],
     );
-    await db.query(`update public.shifts set pay_rate = 25 where id = $1`, [shift]);
-    const r = await db.query(`select pay_rate from public.shifts where id = $1`, [shift]);
-    assert.equal(Number(r.rows[0].pay_rate), 25);
+    await db.query(`update public.shifts set pay_rate_cents = 2500 where id = $1`, [shift]);
+    const r = await db.query(`select pay_rate_cents from public.shifts where id = $1`, [shift]);
+    assert.equal(r.rows[0].pay_rate_cents, 2500);
   });
 });

@@ -32,7 +32,7 @@ function shiftInput(over: Partial<ShiftInput> = {}): ShiftInput {
   return {
     title: 'Weekend Barista',
     role: 'Barista',
-    payRate: 24,
+    payRateCents: 2400,
     payType: 'hour',
     date: '2026-08-01',
     startTime: '09:00',
@@ -177,7 +177,7 @@ describe('sendOffers', () => {
     const offers = await backend.listMyOffers();
     expect(offers).toHaveLength(1);
     expect(offers[0].shift?.title).toBe(shift.title);
-    expect(offers[0].shift?.payRate).toBe(24);
+    expect(offers[0].shift?.payRateCents).toBe(2400);
     expect(offers[0].shift?.business?.companyName).toBe('Blue Harbor Coffee');
   });
 });
@@ -608,7 +608,7 @@ function stubSupabase(backend: SupabaseBackend, shift: Shift, workerId: string) 
     business_id: 'biz',
     title: shift.title,
     role: shift.role,
-    pay_rate: shift.payRate,
+    pay_rate_cents: shift.payRateCents,
     pay_type: shift.payType,
     date: shift.date,
     start_time: shift.startTime,

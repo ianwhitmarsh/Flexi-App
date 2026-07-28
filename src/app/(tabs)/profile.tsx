@@ -12,6 +12,7 @@ import { WorkerProfileForm } from '@/features/WorkerProfileForm';
 import { palette, radius } from '@/constants/theme';
 import type { PayrollStatus } from '@/lib/payroll';
 import { useSession } from '@/lib/session';
+import { formatRate } from '@/lib/util';
 
 /** What each payroll state means to a worker, in their terms. */
 const PAYROLL_COPY: Record<PayrollStatus, string> = {
@@ -193,7 +194,9 @@ export default function Profile() {
             <Card style={styles.card}>
               <Detail icon="location" label="City" value={worker.city || '—'} />
               <Detail icon="briefcase" label="Experience" value={`${worker.yearsExperience} yrs`} />
-              {worker.desiredRate ? <Detail icon="cash" label="Desired rate" value={`$${worker.desiredRate}/hr`} /> : null}
+              {worker.desiredRateCents ? (
+                <Detail icon="cash" label="Desired rate" value={`${formatRate(worker.desiredRateCents)}/hr`} />
+              ) : null}
               {worker.bio ? <Text style={styles.bio}>{worker.bio}</Text> : null}
               {worker.skills.length > 0 && <ChipWrap items={worker.skills} title="Skills" />}
               {worker.availability.length > 0 && <ChipWrap items={worker.availability} title="Availability" />}

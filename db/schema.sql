@@ -35,7 +35,7 @@ create table if not exists public.worker_profiles (
   city              text,
   skills            text[] not null default '{}',
   years_experience  int not null default 0,
-  desired_rate      numeric,
+  desired_rate_cents integer,
   availability      text[] not null default '{}',
   avatar_url        text,
   resume_url        text,
@@ -85,7 +85,7 @@ create table if not exists public.shifts (
   business_id   uuid not null references public.businesses (id) on delete cascade,
   title         text not null,
   role          text not null,
-  pay_rate      numeric not null,
+  pay_rate_cents integer not null,
   pay_type      text not null default 'hour' check (pay_type in ('hour', 'shift')),
   date          date not null,
   start_time    text not null,
@@ -110,6 +110,54 @@ create table if not exists public.shifts (
 alter table public.shifts drop constraint if exists shifts_status_check;
 alter table public.shifts
   add constraint shifts_status_check check (status in ('open', 'filled', 'closed'));
+
+-- ---------------------------------------------------------------------------
+-- Money is an integer count of cents. Always. No exceptions.
+-- ---------------------------------------------------------------------------
+--
+-- Never `numeric`, never a float. A rate is multiplied by hours worked and then
+-- by a vertical markup before anyone is paid, so a representation error does
+-- not stay small — it compounds into the number on somebody's payslip.
+--
+-- `pay_rate` and `desired_rate` were `numeric` and are converted below. They
+-- were the last two, so the rule above now holds across the whole schema; if
+-- you are adding a money column, it ends in `_cents` and it is an integer.
+--
+-- Dollars exist only where a person types or reads one. `dollarsToCents` and
+-- `formatRate` in `src/lib/util.ts` are those two edges, and nothing between
+-- them handles a fractional cent.
+do $$ begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'shifts' and column_name = 'pay_rate'
+  ) then
+    alter table public.shifts rename column pay_rate to pay_rate_cents;
+    -- `round` is deliberate but not load-bearing, and it is worth saying which.
+    --
+    -- Unlike the JavaScript side, there is no floating-point hazard here at
+    -- all: `numeric` is exact decimal, so `8.15 * 100` is exactly `815.00`.
+    -- And `numeric::integer` in PostgreSQL *rounds* rather than truncating, so
+    -- `(18.999 * 100)::integer` is already 1900. The cast alone would be
+    -- correct.
+    --
+    -- It stays because rounding money should be stated rather than inherited
+    -- from a cast's behaviour that a reader has to know to check. A value with
+    -- a third decimal can only arrive by hand — the app rejects it — and this
+    -- says out loud what happens to it.
+    alter table public.shifts
+      alter column pay_rate_cents type integer using round(pay_rate_cents * 100);
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'worker_profiles'
+       and column_name = 'desired_rate'
+  ) then
+    alter table public.worker_profiles rename column desired_rate to desired_rate_cents;
+    alter table public.worker_profiles
+      alter column desired_rate_cents type integer using round(desired_rate_cents * 100);
+  end if;
+end $$;
 
 -- IANA zone the shift's wall-clock times belong to, e.g. `America/Chicago`,
 -- captured from the poster's device. Nullable on purpose: shifts posted before
@@ -507,7 +555,7 @@ end $$;
 -- post a new shift, which runs the cancellation policy and its consequences
 -- rather than silently rewriting the deal.
 --
--- Frozen: `pay_rate`, `pay_type` (BIG-53 computes the payout from these),
+-- Frozen: `pay_rate_cents`, `pay_type` (BIG-53 computes the payout from these),
 -- `date`, `start_time`, `end_time`, `timezone` (the committed work, and what
 -- `bookings.slot` was derived from — moving the zone moves the shift in real
 -- time even with the wall clock untouched), and moving `status` back to `open`
@@ -537,7 +585,7 @@ begin
   -- Nothing frozen is being touched, so there is no need to look for a booking.
   -- `is distinct from` rather than `<>` so a NULL on either side counts as
   -- unchanged-or-changed correctly; `timezone` is nullable on older shifts.
-  if new.pay_rate   is not distinct from old.pay_rate
+  if new.pay_rate_cents is not distinct from old.pay_rate_cents
  and new.pay_type   is not distinct from old.pay_type
  and new.date       is not distinct from old.date
  and new.start_time is not distinct from old.start_time
@@ -827,10 +875,9 @@ create policy "push tokens readable by offerers" on public.push_tokens for selec
 -- represent a cent exactly, and rounding drift on a payroll ledger is not
 -- recoverable. Hours and multipliers are numeric because they are not money.
 --
--- Two pre-existing columns predate this rule and are deliberately untouched:
--- `shifts.pay_rate` and `worker_profiles.desired_rate` are still `numeric`.
--- Converting them means changing every read and write in both backends and the
--- UI, which is application behaviour and out of scope here. Tracked separately.
+-- There are no longer any exceptions. `shifts.pay_rate` and
+-- `worker_profiles.desired_rate` were the last two `numeric` money columns and
+-- BIG-88 converted them, so the rule above holds across the whole schema.
 -- ---------------------------------------------------------------------------
 
 -- Verticals carry the workers' comp class code, which is the largest input to

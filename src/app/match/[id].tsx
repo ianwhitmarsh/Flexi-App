@@ -18,7 +18,7 @@ import { palette, radius } from '@/constants/theme';
 import { buildOpener } from '@/lib/opener';
 import { useSession } from '@/lib/session';
 import type { Match, Message } from '@/lib/types';
-import { formatDate, formatTimeRange, isShiftLive } from '@/lib/util';
+import { formatDate, formatRate, formatTimeRange, isShiftLive } from '@/lib/util';
 
 export default function Chat() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -180,7 +180,7 @@ export default function Chat() {
               <View style={styles.contextCard}>
                 <Text style={styles.contextTitle}>{match.shift.title}</Text>
                 <Text style={styles.contextMeta}>
-                  ${match.shift.payRate}/{match.shift.payType} · {formatDate(match.shift.date)} ·{' '}
+                  {formatRate(match.shift.payRateCents)}/{match.shift.payType} · {formatDate(match.shift.date)} ·{' '}
                   {formatTimeRange(match.shift.startTime, match.shift.endTime)}
                 </Text>
                 <Text style={styles.contextHint}>{contextHint}</Text>

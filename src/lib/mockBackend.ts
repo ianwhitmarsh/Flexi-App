@@ -125,8 +125,42 @@ function migrate(db: DB): { db: DB; changed: boolean } {
       readied += 1;
     }
   }
+  const rates = migrateRatesToCents(db);
   const opened = backfillThreads(db);
-  return { db, changed: opened > 0 || readied > 0 };
+  return { db, changed: opened > 0 || readied > 0 || rates > 0 };
+}
+
+/**
+ * Rates stored as dollars, from before BIG-88 — the AsyncStorage counterpart of
+ * the `pay_rate` → `pay_rate_cents` migration in `schema.sql`.
+ *
+ * Anyone who already has the app installed has shifts persisted under the old
+ * key. Without this they render as `$NaN/hour`, which is how this was found:
+ * every test builds its fixtures fresh, so only a device carrying real prior
+ * state shows it.
+ *
+ * Keyed on the old field still being present, so it converts once and is inert
+ * afterwards — and a value already in cents is never multiplied again.
+ */
+function migrateRatesToCents(db: DB): number {
+  let converted = 0;
+  const toCents = (dollars: unknown) =>
+    typeof dollars === 'number' && Number.isFinite(dollars) ? Math.round(dollars * 100) : undefined;
+
+  for (const s of db.shifts as (Shift & { payRate?: number })[]) {
+    if (s.payRate === undefined) continue;
+    s.payRateCents ??= toCents(s.payRate) ?? 0;
+    delete s.payRate;
+    converted += 1;
+  }
+  for (const account of Object.values(db.accounts)) {
+    const w = account.worker as (WorkerProfile & { desiredRate?: number }) | undefined;
+    if (!w || w.desiredRate === undefined) continue;
+    w.desiredRateCents ??= toCents(w.desiredRate);
+    delete w.desiredRate;
+    converted += 1;
+  }
+  return converted;
 }
 
 /**

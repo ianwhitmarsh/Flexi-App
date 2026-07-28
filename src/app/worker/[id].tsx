@@ -24,6 +24,7 @@ import { Avatar, Button, Card, EmptyState, IconButton, Screen } from '@/componen
 import { palette, radius } from '@/constants/theme';
 import { useSession } from '@/lib/session';
 import type { InterestedWorker, WorkerProfile } from '@/lib/types';
+import { formatRate } from '@/lib/util';
 
 export default function WorkerDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -130,8 +131,8 @@ export default function WorkerDetail() {
               label="Experience"
               value={`${worker.yearsExperience} yr${worker.yearsExperience === 1 ? '' : 's'}`}
             />
-            {worker.desiredRate ? (
-              <Detail icon="cash" label="Desired rate" value={`$${worker.desiredRate}/hr`} />
+            {worker.desiredRateCents ? (
+              <Detail icon="cash" label="Desired rate" value={`${formatRate(worker.desiredRateCents)}/hr`} />
             ) : null}
 
             {worker.bio ? <Text style={styles.bio}>{worker.bio}</Text> : null}
