@@ -852,20 +852,29 @@ create policy "bookings participants" on public.bookings for select using (
   auth.uid() = worker_id or auth.uid() = business_id
 );
 
--- push_tokens: you manage your own.
+-- push_tokens: you manage your own, and nobody else reads them.
+--
+-- A push token is a device address. Anyone holding one can send arbitrary
+-- notifications to that phone, and it outlives the shift it was shared for by
+-- as long as the app stays installed.
+--
+-- There used to be a second policy here, `push tokens readable by offerers`,
+-- letting a business read the token of any worker it had ever offered a shift
+-- to. It existed because `sendOfferPush` posts to Expo from the *employer's
+-- device* — with no server, the sender had to read the recipients' tokens.
+--
+-- It is gone, and dropping it cost nothing, because the feature behind it has
+-- never worked: `projectId()` reads `expoConfig.extra.eas.projectId`, there is
+-- no `extra` block and no `eas.json`, so no token is ever registered and this
+-- table is empty. It granted a real read over data that could not exist.
+--
+-- BIG-57 will send from a Supabase Edge Function using the service role, which
+-- bypasses RLS — so the policy is not needed then either.
+drop policy if exists "push tokens readable by offerers" on public.push_tokens;
+
 drop policy if exists "push tokens self" on public.push_tokens;
 create policy "push tokens self" on public.push_tokens for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
--- The offer sender needs to look up recipients' tokens.
-drop policy if exists "push tokens readable by offerers" on public.push_tokens;
-create policy "push tokens readable by offerers" on public.push_tokens for select using (
-  exists (
-    select 1 from public.offers o
-    join public.shifts s on s.id = o.shift_id
-    where o.worker_id = push_tokens.user_id and s.business_id = auth.uid()
-  )
-);
 
 -- ---------------------------------------------------------------------------
 -- Shift lifecycle, money, and per-vertical rate configuration.

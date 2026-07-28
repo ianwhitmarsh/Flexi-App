@@ -98,7 +98,10 @@ describe('applying schema.sql to a database that already has it', () => {
     //
     // 28 → 34 with BIG-37: read policies for `verticals`, `pricing_tiers`, and
     // a worker/business pair each for `timesheets` and `shift_payments`.
-    assert.equal(once.policies.length, 34);
+    // 34 → 33 with BIG-89, which removed `push tokens readable by offerers`.
+    // A count going *down* is the case most worth stopping on, so this failing
+    // on a deletion is the mechanism working rather than a nuisance.
+    assert.equal(once.policies.length, 33);
   });
 });
 
