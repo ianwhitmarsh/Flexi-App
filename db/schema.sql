@@ -1012,6 +1012,27 @@ create policy "pricing tiers readable" on public.pricing_tiers for select
 
 -- timesheets: the booked worker sees their own; the owning business sees any
 -- tied to its shifts. Writes arrive through functions in later issues.
+-- A policy that reads another table inherits that table's RLS
+-- ---------------------------------------------------------------------------
+--
+-- A subquery inside a policy is evaluated as the calling user, so it only sees
+-- rows that user's other policies already allow. That makes a policy's real
+-- strictness depend on the policies of everything it references, which is not
+-- visible from reading it on its own.
+--
+-- It cuts both ways here:
+--
+--   * `timesheets business read` reaches the shift through `bookings`, and
+--     `bookings participants` denies a non-participant first — so its ownership
+--     clause is backed up by something else, and weakening it does not leak.
+--   * `payments business read` joins straight to `shifts`, and `shifts
+--     readable` is `auth.role() = 'authenticated'` — true for anyone signed in.
+--     Its ownership clause is the *only* thing standing between another
+--     business and this row's wage and bill rates.
+--
+-- So any new policy that reaches through `shifts` gets no help from doing so.
+-- `db/__tests__/rls.test.mjs` covers both cases, and says which is which.
+
 drop policy if exists "timesheets worker read" on public.timesheets;
 create policy "timesheets worker read" on public.timesheets for select using (
   exists (
