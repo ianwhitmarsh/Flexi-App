@@ -135,16 +135,17 @@ describe('while nobody is booked', () => {
     // The trigger looks for `status = 'confirmed'` specifically, not for any
     // booking row. Once BIG-54 cancels one, the shift is ordinary again.
     //
-    // `cancelled` is the whole vocabulary `bookings_status_check` allows on
-    // main today. BIG-37 widens it to `cancelled_by_employer` /
-    // `cancelled_by_worker`, and this test should keep passing unchanged when
-    // it lands — the trigger asks whether the status *is* `confirmed`, not
-    // which flavour of not-confirmed it is.
+    // I wrote this against `cancelled`, predicting BIG-37 would only widen the
+    // vocabulary and leave the test untouched. Half right: the trigger really
+    // is indifferent to *which* not-confirmed status this is — it asks whether
+    // the status is `confirmed`. But BIG-37 *replaced* the vocabulary rather
+    // than extending it, so plain `cancelled` no longer passes the check
+    // constraint and the fixture did need updating.
     const { worker } = await seed(db);
     await db.query(
       `insert into public.bookings (shift_id, worker_id, business_id, slot, status)
        select $1, $2, business_id,
-              public.shift_slot(date, start_time, end_time, timezone), 'cancelled'
+              public.shift_slot(date, start_time, end_time, timezone), 'cancelled_by_worker'
          from public.shifts where id = $1`,
       [shift, worker],
     );
