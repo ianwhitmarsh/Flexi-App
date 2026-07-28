@@ -220,7 +220,11 @@ describe('a shift that has started but not finished', () => {
     await backend.signIn(BIZ.email, BIZ.password);
     const batch = await backend.sendOffers(live.id, [worker]);
 
+    // Payroll-ready first: this test is about a shift that has started but not
+    // finished, not about the payroll gate (BIG-73).
     await backend.signIn(WORKER.email, WORKER.password);
+    await backend.startPayrollSetup();
+    await backend.refreshPayrollStatus();
     expect((await backend.acceptOffer(batch.offers[0].id)).status).toBe('accepted');
   });
 });
