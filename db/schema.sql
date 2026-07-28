@@ -737,6 +737,177 @@ create policy "push tokens readable by offerers" on public.push_tokens for selec
 );
 
 -- ---------------------------------------------------------------------------
+-- Shift lifecycle, money, and per-vertical rate configuration.
+--
+-- MONEY RULE: every monetary column below is an integer count of cents, named
+-- `*_cents`. Never numeric, never float — binary floating point cannot
+-- represent a cent exactly, and rounding drift on a payroll ledger is not
+-- recoverable. Hours and multipliers are numeric because they are not money.
+--
+-- Two pre-existing columns predate this rule and are deliberately untouched:
+-- `shifts.pay_rate` and `worker_profiles.desired_rate` are still `numeric`.
+-- Converting them means changing every read and write in both backends and the
+-- UI, which is application behaviour and out of scope here. Tracked separately.
+-- ---------------------------------------------------------------------------
+
+-- Verticals carry the workers' comp class code, which is the largest input to
+-- true cost per hour and differs enough between them to price separately.
+-- Text slugs rather than uuids: they are a small fixed set, they are referenced
+-- by name in the pricing model, and it makes the `shifts` default readable.
+create table if not exists public.verticals (
+  id              text primary key,
+  name            text not null,
+  comp_class_code text not null,
+  comp_rate_pct   numeric(6, 3) not null,
+  created_at      timestamptz not null default now()
+);
+
+insert into public.verticals (id, name, comp_class_code, comp_rate_pct) values
+  ('hospitality', 'Hospitality & food service', '9079', 3.150),
+  ('warehouse',   'Warehouse & light industrial', '8292', 7.420),
+  ('retail',      'Retail & events', '8017', 2.480)
+on conflict (id) do nothing;
+
+create table if not exists public.pricing_tiers (
+  id                  text primary key,
+  name                text not null,
+  monthly_price_cents integer not null,
+  markup_multiplier   numeric(4, 3) not null,
+  created_at          timestamptz not null default now()
+);
+
+insert into public.pricing_tiers (id, name, monthly_price_cents, markup_multiplier) values
+  ('payg',    'Pay as you go',     0, 1.550),
+  ('starter', 'Starter',       19900, 1.450),
+  ('pro',     'Pro',           49900, 1.380)
+on conflict (id) do nothing;
+
+-- `not null default 'hospitality'` rather than a bare `not null`: the column is
+-- required, but a default is what keeps `createShift` working unchanged in both
+-- backends, which NG-1 requires. Picking the vertical is a later issue.
+do $$ begin
+  alter table public.shifts
+    add column vertical_id text not null default 'hospitality'
+    references public.verticals (id);
+exception when duplicate_column then null; end $$;
+
+do $$ begin
+  alter table public.businesses
+    add column pricing_tier_id text not null default 'payg'
+    references public.pricing_tiers (id);
+exception when duplicate_column then null; end $$;
+
+-- `expired` joins the offer states, for the timed-exclusive offer mode.
+do $$ begin
+  alter table public.offers drop constraint offers_status_check;
+exception when undefined_object then null; end $$;
+alter table public.offers
+  add constraint offers_status_check
+  check (status in ('sent', 'accepted', 'declined', 'expired', 'filled'));
+
+-- Bookings gain the outcomes a shift can actually end in. The old vocabulary
+-- was `confirmed | cancelled`, which cannot express who cancelled — the
+-- difference that the cancellation policy and any refund depend on.
+-- Order matters: the rewrite has to happen with no check in force. The old
+-- constraint does not permit `cancelled_by_employer`, so updating first would
+-- violate it.
+do $$ begin
+  alter table public.bookings drop constraint bookings_status_check;
+exception when undefined_object then null; end $$;
+
+update public.bookings set status = 'cancelled_by_employer' where status = 'cancelled';
+
+alter table public.bookings
+  add constraint bookings_status_check
+  check (status in (
+    'confirmed', 'cancelled_by_employer', 'cancelled_by_worker', 'no_show', 'completed'
+  ));
+
+create table if not exists public.timesheets (
+  id           uuid primary key default gen_random_uuid(),
+  booking_id   uuid not null unique references public.bookings (id) on delete cascade,
+  clock_in_at  timestamptz,
+  clock_out_at timestamptz,
+  approved_at  timestamptz,
+  approved_by  uuid references public.profiles (id) on delete set null,
+  status       text not null default 'open'
+               check (status in ('open', 'submitted', 'approved', 'disputed')),
+  created_at   timestamptz not null default now()
+);
+
+-- One money record per booking. `bill_rate_cents` is what the employer pays per
+-- hour, `wage_rate_cents` what the worker earns; the gap is the markup that
+-- `pricing_tiers` and `verticals` together determine.
+create table if not exists public.shift_payments (
+  id                       uuid primary key default gen_random_uuid(),
+  booking_id               uuid not null unique references public.bookings (id) on delete cascade,
+  shift_id                 uuid not null references public.shifts (id) on delete cascade,
+  bill_rate_cents          integer not null,
+  wage_rate_cents          integer not null,
+  scheduled_hours          numeric(5, 2) not null,
+  escrow_amount_cents      integer not null default 0,
+  refunded_amount_cents    integer not null default 0,
+  captured_at              timestamptz,
+  released_at              timestamptz,
+  stripe_payment_intent_id text,
+  created_at               timestamptz not null default now()
+);
+
+create index if not exists timesheets_status_idx      on public.timesheets (status);
+create index if not exists shift_payments_shift_idx   on public.shift_payments (shift_id);
+
+alter table public.verticals      enable row level security;
+alter table public.pricing_tiers  enable row level security;
+alter table public.timesheets     enable row level security;
+alter table public.shift_payments enable row level security;
+
+-- Rate configuration is reference data: readable by anyone signed in, written
+-- by nobody through the API.
+drop policy if exists "verticals readable" on public.verticals;
+create policy "verticals readable" on public.verticals for select
+  using (auth.role() = 'authenticated');
+
+drop policy if exists "pricing tiers readable" on public.pricing_tiers;
+create policy "pricing tiers readable" on public.pricing_tiers for select
+  using (auth.role() = 'authenticated');
+
+-- timesheets: the booked worker sees their own; the owning business sees any
+-- tied to its shifts. Writes arrive through functions in later issues.
+drop policy if exists "timesheets worker read" on public.timesheets;
+create policy "timesheets worker read" on public.timesheets for select using (
+  exists (
+    select 1 from public.bookings b
+    where b.id = timesheets.booking_id and b.worker_id = auth.uid()
+  )
+);
+
+drop policy if exists "timesheets business read" on public.timesheets;
+create policy "timesheets business read" on public.timesheets for select using (
+  exists (
+    select 1 from public.bookings b
+    join public.shifts s on s.id = b.shift_id
+    where b.id = timesheets.booking_id and s.business_id = auth.uid()
+  )
+);
+
+-- shift_payments: same two readers. Nothing client-side writes money rows.
+drop policy if exists "payments worker read" on public.shift_payments;
+create policy "payments worker read" on public.shift_payments for select using (
+  exists (
+    select 1 from public.bookings b
+    where b.id = shift_payments.booking_id and b.worker_id = auth.uid()
+  )
+);
+
+drop policy if exists "payments business read" on public.shift_payments;
+create policy "payments business read" on public.shift_payments for select using (
+  exists (
+    select 1 from public.shifts s
+    where s.id = shift_payments.shift_id and s.business_id = auth.uid()
+  )
+);
+
+-- ---------------------------------------------------------------------------
 -- Storage bucket for résumés — private, owner write, narrow read.
 --
 -- A résumé carries a legal name, employment history and usually a phone number.
