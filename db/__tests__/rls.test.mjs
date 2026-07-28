@@ -185,18 +185,26 @@ describe('money and hours are private to the two parties', () => {
   });
 
   it('hides the timesheet from a business that does not own the shift', async () => {
-    // Correct behaviour, but *not* for the reason the ownership clause suggests,
-    // and the difference is worth knowing before trusting this test.
+    // Correct behaviour, held up by *two* independent mechanisms — which is
+    // worth knowing before trusting this test, because either one alone is
+    // enough and so neither shows up as load-bearing.
     //
     // `timesheets business read` reaches the shift through `bookings`, and a
-    // policy subquery is itself subject to the referenced table's RLS for the
-    // calling user. `bookings participants` already denies the rival, so the
-    // subquery finds nothing and `shifts.business_id = auth.uid()` is never
-    // consulted. Measured on this fixture: the rival sees 0 bookings, 0
-    // timesheets — and 1 shift.
+    // policy subquery is subject to the referenced table's RLS for the calling
+    // user. `bookings participants` denies the rival, so the subquery finds
+    // nothing. Separately, the rival owns no shifts, so the ownership clause
+    // denies them too. Measured on this fixture: 0 bookings, 0 timesheets, 1
+    // shift.
     //
-    // So weakening the ownership clause here does not fail this test. What
-    // fails it is dropping the join through `bookings` altogether.
+    // Measured, not reasoned — an earlier version of this comment named one
+    // removal as the thing that breaks it and was wrong:
+    //
+    //   remove the `bookings` join, keep ownership   -> 64/64, still denied
+    //   keep the join, remove ownership              -> 64/64, still denied
+    //   remove both                                  -> this test fails
+    //
+    // So this asserts the disjunction. Contrast `payments business read`
+    // below, which has one line of defence and no spare.
     const r = await asUser(db, rival, () => db.query(`select id from public.timesheets`));
     assert.deepEqual(r.rows, []);
   });
