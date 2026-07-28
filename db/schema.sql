@@ -555,7 +555,7 @@ end $$;
 -- post a new shift, which runs the cancellation policy and its consequences
 -- rather than silently rewriting the deal.
 --
--- Frozen: `pay_rate`, `pay_type` (BIG-53 computes the payout from these),
+-- Frozen: `pay_rate_cents`, `pay_type` (BIG-53 computes the payout from these),
 -- `date`, `start_time`, `end_time`, `timezone` (the committed work, and what
 -- `bookings.slot` was derived from — moving the zone moves the shift in real
 -- time even with the wall clock untouched), and moving `status` back to `open`
@@ -585,7 +585,7 @@ begin
   -- Nothing frozen is being touched, so there is no need to look for a booking.
   -- `is distinct from` rather than `<>` so a NULL on either side counts as
   -- unchanged-or-changed correctly; `timezone` is nullable on older shifts.
-  if new.pay_rate   is not distinct from old.pay_rate
+  if new.pay_rate_cents is not distinct from old.pay_rate_cents
  and new.pay_type   is not distinct from old.pay_type
  and new.date       is not distinct from old.date
  and new.start_time is not distinct from old.start_time
@@ -875,10 +875,9 @@ create policy "push tokens readable by offerers" on public.push_tokens for selec
 -- represent a cent exactly, and rounding drift on a payroll ledger is not
 -- recoverable. Hours and multipliers are numeric because they are not money.
 --
--- Two pre-existing columns predate this rule and are deliberately untouched:
--- `shifts.pay_rate` and `worker_profiles.desired_rate` are still `numeric`.
--- Converting them means changing every read and write in both backends and the
--- UI, which is application behaviour and out of scope here. Tracked separately.
+-- There are no longer any exceptions. `shifts.pay_rate` and
+-- `worker_profiles.desired_rate` were the last two `numeric` money columns and
+-- BIG-88 converted them, so the rule above holds across the whole schema.
 -- ---------------------------------------------------------------------------
 
 -- Verticals carry the workers' comp class code, which is the largest input to
