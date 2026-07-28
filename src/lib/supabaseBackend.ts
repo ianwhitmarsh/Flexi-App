@@ -605,12 +605,29 @@ export class SupabaseBackend implements Backend {
   }
 
   /** Look up the recipients' device tokens and hand them to Expo. */
+  /**
+   * Notify the offered workers, if this client can reach their tokens at all.
+   *
+   * Since BIG-89 it cannot: `push_tokens` is self-access only, so this select
+   * returns zero rows for anybody else's token rather than an error, and
+   * `sendOfferPush` returns on its empty guard. That is the intended end state
+   * — an employer's device has no business holding a worker's device address —
+   * and it stays a silent no-op rather than a failure because an offer that was
+   * created successfully must not be reported as failed over a notification.
+   *
+   * BIG-57 moves the send to an Edge Function using the service role, which is
+   * where reading other people's tokens legitimately belongs.
+   */
   private async pushOfferTo(workerIds: string[], shift: Shift): Promise<void> {
-    const { data } = await this.sb
-      .from('push_tokens')
-      .select('token')
-      .in('user_id', workerIds);
-    await sendOfferPush((data ?? []).map((r) => r.token), shift);
+    try {
+      const { data } = await this.sb
+        .from('push_tokens')
+        .select('token')
+        .in('user_id', workerIds);
+      await sendOfferPush((data ?? []).map((r) => r.token), shift);
+    } catch {
+      // The offers are already committed; a push is not worth failing them for.
+    }
   }
 
   async listMyOffers(): Promise<Offer[]> {
