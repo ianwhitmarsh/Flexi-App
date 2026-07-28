@@ -90,7 +90,15 @@ describe('applying schema.sql to a database that already has it', () => {
     // the part a `drop policy` + `create policy` pair could plausibly get
     // wrong, and the one with a security consequence if it did.
     assert.deepEqual(twice.policies, once.policies);
-    assert.equal(once.policies.length, 28);
+
+    // Deliberately an exact count, so a policy that silently stops being
+    // created fails here rather than passing quietly. It is meant to be
+    // updated by hand when a change adds or removes one — if this fails,
+    // check the diff really did intend to change the policy set, then bump it.
+    //
+    // 28 → 34 with BIG-37: read policies for `verticals`, `pricing_tiers`, and
+    // a worker/business pair each for `timesheets` and `shift_payments`.
+    assert.equal(once.policies.length, 34);
   });
 });
 
