@@ -91,9 +91,53 @@ export async function offerShift(db, { employer, worker, date, start, end, timez
   return { shift, offer };
 }
 
+/**
+ * Sign in, for the rest of this connection.
+ *
+ * PGlite is a single session, so this is sticky rather than scoped — which is
+ * why `asUser` below always puts the role back.
+ */
+export async function signIn(db, userId) {
+  await db.query(`select set_config('request.jwt.claims', $1, false)`, [
+    JSON.stringify({ sub: userId, role: 'authenticated' }),
+  ]);
+}
+
+/**
+ * Run `fn` as a signed-in user, with RLS actually enforced.
+ *
+ * Everything else in these suites runs as superuser, which bypasses RLS
+ * entirely — convenient for seeding, useless for testing a policy. Switching to
+ * `authenticated` makes the policies apply, because the tables are owned by
+ * `postgres` and this role is not the owner.
+ *
+ * The role is reset in a `finally`: a test that leaves the connection as
+ * `authenticated` would silently change the meaning of every fixture after it,
+ * and the failure would surface somewhere unrelated.
+ */
+export async function asUser(db, userId, fn) {
+  await signIn(db, userId);
+  await db.exec(`set role authenticated;`);
+  try {
+    return await fn();
+  } finally {
+    await db.exec(`reset role;`);
+  }
+}
+
+/** Like `asUser`, but expects the block to be refused. Returns the message. */
+export async function refusedAsUser(db, userId, fn) {
+  try {
+    await asUser(db, userId, fn);
+  } catch (e) {
+    return e.message;
+  }
+  return null;
+}
+
 /** Call `accept_offer` as `worker`. Errors come back as `status: 'error'`. */
 export async function accept(db, worker, offerId) {
-  await db.exec(`select set_config('test.uid', '${worker}', false);`);
+  await signIn(db, worker);
   try {
     const r = await db.query(`select public.accept_offer($1::uuid) as result`, [offerId]);
     return r.rows[0].result;
