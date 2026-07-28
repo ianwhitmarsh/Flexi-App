@@ -27,6 +27,11 @@ function AuthGate() {
     const root = segments[0] as string | undefined;
     const inAuth = root === '(auth)';
     const inOnboarding = root === 'onboarding';
+    // The legal documents must be readable without an account — App Store
+    // review reaches them from the signed-out state — so the gate lets this
+    // one branch through in every direction.
+    const inLegal = root === 'legal';
+    if (inLegal) return;
 
     if (!account) {
       if (!inAuth) router.replace('/(auth)/welcome');
@@ -72,6 +77,8 @@ function AuthGate() {
       <Stack.Screen name="shift/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="shift/[id]/interested" />
       <Stack.Screen name="worker/[id]" />
+      <Stack.Screen name="legal/index" />
+      <Stack.Screen name="legal/[doc]" />
     </Stack>
   );
 }

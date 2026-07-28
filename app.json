@@ -8,7 +8,12 @@
     "scheme": "flexi",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Flexi uses your location to confirm you're at the job site when you clock in and out of a shift.",
+        "NSCameraUsageDescription": "Flexi uses the camera to photograph your ID when you verify your identity to work.",
+        "NSPhotoLibraryUsageDescription": "Flexi uses your photo library so you can upload an ID document or a profile photo."
+      }
     },
     "android": {
       "adaptiveIcon": {
