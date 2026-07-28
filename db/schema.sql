@@ -1010,6 +1010,30 @@ drop policy if exists "pricing tiers readable" on public.pricing_tiers;
 create policy "pricing tiers readable" on public.pricing_tiers for select
   using (auth.role() = 'authenticated');
 
+-- ---------------------------------------------------------------------------
+-- A policy that reads another table inherits that table's RLS
+-- ---------------------------------------------------------------------------
+--
+-- A subquery inside a policy is evaluated as the calling user, so it only sees
+-- rows that user's other policies already allow. A policy's real strictness
+-- therefore depends on the policies of everything it references, which is not
+-- visible from reading it on its own.
+--
+-- It matters for the two below, in opposite directions:
+--
+--   * `timesheets business read` reaches the shift through `bookings`, and
+--     `bookings participants` denies a non-participant. So it is held up by two
+--     independent things — that join, and its own ownership clause — and
+--     removing either one alone still denies a rival business.
+--   * `payments business read` joins straight to `shifts`, and `shifts
+--     readable` is `auth.role() = 'authenticated'` — true for anyone signed in.
+--     Its ownership clause is the only thing between another business and this
+--     row's wage and bill rates.
+--
+-- So a new policy reaching through `shifts` gets no help from doing so, and one
+-- reaching through a participant-scoped table does. `db/__tests__/rls.test.mjs`
+-- covers both, and its comments record which mechanism is load-bearing.
+
 -- timesheets: the booked worker sees their own; the owning business sees any
 -- tied to its shifts. Writes arrive through functions in later issues.
 drop policy if exists "timesheets worker read" on public.timesheets;
