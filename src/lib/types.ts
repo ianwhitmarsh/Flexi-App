@@ -22,7 +22,7 @@ export interface WorkerProfile {
   skills: string[];
   yearsExperience: number;
   /** Desired hourly rate in dollars. */
-  desiredRate?: number;
+  desiredRateCents?: number;
   /** Availability tags, e.g. ["Weekends", "Evenings"]. */
   availability: string[];
   avatarUrl?: string;
@@ -98,7 +98,7 @@ export interface Shift {
   businessId: string;
   title: string;
   role: string;
-  payRate: number;
+  payRateCents: number;
   payType: 'hour' | 'shift';
   /** ISO date string (yyyy-mm-dd). */
   date: string;

@@ -7,7 +7,7 @@ import { Button, Card, EmptyState, Screen } from '@/components/ui';
 import { palette, radius } from '@/constants/theme';
 import { useSession } from '@/lib/session';
 import type { Shift, ShiftStatus } from '@/lib/types';
-import { formatDate, formatTimeRange, hasShiftEnded } from '@/lib/util';
+import { formatDate, formatRate, formatTimeRange, hasShiftEnded } from '@/lib/util';
 
 export default function MyShifts() {
   const router = useRouter();
@@ -73,7 +73,7 @@ export default function MyShifts() {
                 </View>
               </View>
               <Text style={styles.pay}>
-                ${s.payRate}/{s.payType} · {s.role}
+                {formatRate(s.payRateCents)}/{s.payType} · {s.role}
               </Text>
               {s.fillMode === 'race' && (
                 <View style={styles.raceBadge}>

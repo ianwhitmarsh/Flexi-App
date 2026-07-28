@@ -10,6 +10,7 @@ import { palette } from '@/constants/theme';
 import { AVAILABILITY_OPTIONS } from '@/lib/constants';
 import { useSession } from '@/lib/session';
 import type { ResumeFile, WorkerProfile } from '@/lib/types';
+import { centsToInput, dollarsToCents } from '@/lib/util';
 
 export function WorkerProfileForm({
   initial,
@@ -27,7 +28,9 @@ export function WorkerProfileForm({
   const [bio, setBio] = useState(initial?.bio ?? '');
   const [skills, setSkills] = useState<string[]>(initial?.skills ?? []);
   const [years, setYears] = useState(initial?.yearsExperience ? String(initial.yearsExperience) : '');
-  const [rate, setRate] = useState(initial?.desiredRate ? String(initial.desiredRate) : '');
+  const [rate, setRate] = useState(
+    initial?.desiredRateCents ? centsToInput(initial.desiredRateCents) : '',
+  );
   const [availability, setAvailability] = useState<string[]>(initial?.availability ?? []);
   const [resume, setResume] = useState<ResumeFile | null>(null);
   const [resumeName, setResumeName] = useState(initial?.resumeName);
@@ -54,7 +57,7 @@ export function WorkerProfileForm({
         bio: bio.trim(),
         skills,
         yearsExperience: Number(years) || 0,
-        desiredRate: rate ? Number(rate) : undefined,
+        desiredRateCents: rate ? (dollarsToCents(rate) ?? undefined) : undefined,
         availability,
         resumeUrl,
         resumeName: savedResumeName,

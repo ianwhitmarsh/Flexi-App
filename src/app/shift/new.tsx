@@ -17,7 +17,7 @@ import { palette, radius } from '@/constants/theme';
 import { SHIFT_ROLES } from '@/lib/constants';
 import { useSession } from '@/lib/session';
 import type { FillMode } from '@/lib/types';
-import { deviceTimezone, formatDate } from '@/lib/util';
+import { deviceTimezone, dollarsToCents, formatDate } from '@/lib/util';
 
 /**
  * `standard` is shown but not selectable: one-at-a-time exclusive offers with
@@ -81,14 +81,20 @@ export default function NewShift() {
   const submit = async () => {
     setError(null);
     if (!title.trim()) return setError('Give the shift a title.');
-    if (!payRate || Number(payRate) <= 0) return setError('Enter a valid pay rate.');
+    const payRateCents = dollarsToCents(payRate);
+    // `null` covers an empty field, letters, and more precision than cents.
+    // Rejecting 18.999 rather than rounding it to $19.00 matters: this is the
+    // number a worker is promised and BIG-53 will pay from.
+    if (payRateCents === null || payRateCents <= 0) {
+      return setError('Enter a pay rate in dollars, e.g. 22 or 18.50.');
+    }
     if (!validTime(startTime) || !validTime(endTime)) return setError('Times must be in HH:MM (24h) format.');
     setBusy(true);
     try {
       await backend.createShift({
         title: title.trim(),
         role,
-        payRate: Number(payRate),
+        payRateCents,
         payType,
         date,
         startTime,
@@ -125,7 +131,7 @@ export default function NewShift() {
               label="Pay rate ($)"
               value={payRate}
               onChangeText={setPayRate}
-              keyboardType="number-pad"
+              keyboardType="decimal-pad"
               placeholder="22"
               style={{ flex: 1 }}
             />

@@ -6,7 +6,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Button } from '@/components/ui';
 import { palette, radius, shadow } from '@/constants/theme';
 import type { Offer } from '@/lib/types';
-import { formatDate, formatTimeRange } from '@/lib/util';
+import { formatDate, formatRate, formatTimeRange } from '@/lib/util';
 
 export function OfferCard({
   offer,
@@ -30,7 +30,7 @@ export function OfferCard({
           <Text style={styles.badgeText}>Offer</Text>
         </View>
         <Text style={styles.pay}>
-          ${shift.payRate}
+          {formatRate(shift.payRateCents)}
           <Text style={styles.payUnit}>/{shift.payType}</Text>
         </Text>
       </View>

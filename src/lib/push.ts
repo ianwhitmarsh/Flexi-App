@@ -17,6 +17,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 import type { Shift } from './types';
+import { formatRate } from './util';
 
 const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
 
@@ -75,7 +76,7 @@ export async function getPushToken(): Promise<string | null> {
 
 export function offerNotificationBody(shift: Shift): { title: string; body: string } {
   return {
-    title: `New shift offer · $${shift.payRate}/${shift.payType}`,
+    title: `New shift offer · ${formatRate(shift.payRateCents)}/${shift.payType}`,
     body: `${shift.business?.companyName ?? 'A local business'} offered you "${shift.title}". First to accept gets it.`,
   };
 }

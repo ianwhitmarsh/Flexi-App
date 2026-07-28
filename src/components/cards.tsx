@@ -6,7 +6,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { palette, radius } from '@/constants/theme';
 import type { Shift, WorkerProfile } from '@/lib/types';
-import { formatDate, formatTimeRange } from '@/lib/util';
+import { formatDate, formatRate, formatTimeRange } from '@/lib/util';
 
 function MetaRow({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
   return (
@@ -39,7 +39,7 @@ export function ShiftCard({ shift }: { shift: Shift }) {
           </View>
           <View style={styles.payPill}>
             <Text style={styles.payText}>
-              ${shift.payRate}
+              {formatRate(shift.payRateCents)}
               <Text style={styles.payUnit}>/{shift.payType}</Text>
             </Text>
           </View>
