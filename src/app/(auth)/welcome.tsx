@@ -48,7 +48,7 @@ export default function Welcome() {
           </Pressable>
           {!isLive && (
             <Text style={styles.demoNote}>
-              Demo mode — sign up with any email &amp; password to explore.
+              Demo mode — sign up with any email & password to explore.
             </Text>
           )}
         </View>
