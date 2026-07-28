@@ -276,6 +276,16 @@ drop policy if exists "shifts owner write" on public.shifts;
 create policy "shifts owner write" on public.shifts for all
   using (auth.uid() = business_id) with check (auth.uid() = business_id);
 
+-- WHICH columns an owner may change once somebody is booked is a separate
+-- question, and this policy cannot answer it — `with check` only ever sees the
+-- new row, so there is no `old` to compare against. The same limitation as on
+-- `matches` above, and here it needs the other remedy: a trigger, because the
+-- rule is conditional on a booking existing rather than absolute. Column
+-- privileges would freeze pay and times on *unbooked* shifts too, which is
+-- exactly the ordinary editing an employer must keep.
+--
+-- See `shift_terms_locked` below.
+
 -- swipes: you can read and create your own.
 drop policy if exists "swipes self read"   on public.swipes;
 create policy "swipes self read"   on public.swipes for select using (auth.uid() = swiper_id);
@@ -487,6 +497,79 @@ do $$ begin
       where (status = 'confirmed');
   end if;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Booked shifts are frozen on the terms that were agreed
+-- ---------------------------------------------------------------------------
+--
+-- Once a worker holds a confirmed booking, the owning business may no longer
+-- change what the worker signed up for. To change the terms they cancel and
+-- post a new shift, which runs the cancellation policy and its consequences
+-- rather than silently rewriting the deal.
+--
+-- Frozen: `pay_rate`, `pay_type` (BIG-53 computes the payout from these),
+-- `date`, `start_time`, `end_time`, `timezone` (the committed work, and what
+-- `bookings.slot` was derived from — moving the zone moves the shift in real
+-- time even with the wall clock untouched), and moving `status` back to `open`
+-- on a shift somebody already holds.
+--
+-- Still editable: `title`, `role`, `location`, `description`, `requirements`.
+-- An employer adding "use the side entrance" on the morning of a shift is
+-- ordinary and useful, and nothing downstream computes money from it.
+--
+-- This has to be a trigger rather than a policy or a column privilege:
+--   * a policy's `with check` sees only the new row, so it cannot tell that a
+--     column *changed*;
+--   * `revoke update (...)` is unconditional, and would also freeze shifts that
+--     nobody has booked — the ordinary editing this must not touch.
+--
+-- `security definer` so the booking lookup does not depend on the caller's RLS
+-- view of `bookings`. It would happen to work today, since the employer is the
+-- `business_id` on the row and can see it — but a guard that stops guarding
+-- because somebody narrowed an unrelated policy is not a guard.
+create or replace function public.shift_terms_locked()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Nothing frozen is being touched, so there is no need to look for a booking.
+  -- `is distinct from` rather than `<>` so a NULL on either side counts as
+  -- unchanged-or-changed correctly; `timezone` is nullable on older shifts.
+  if new.pay_rate   is not distinct from old.pay_rate
+ and new.pay_type   is not distinct from old.pay_type
+ and new.date       is not distinct from old.date
+ and new.start_time is not distinct from old.start_time
+ and new.end_time   is not distinct from old.end_time
+ and new.timezone   is not distinct from old.timezone
+ and not (new.status = 'open' and old.status is distinct from 'open')
+  then
+    return new;
+  end if;
+
+  if exists (
+    select 1 from public.bookings
+     where shift_id = old.id and status = 'confirmed'
+  ) then
+    raise exception
+      'This shift is booked. Pay, times and availability cannot change once a worker has accepted — cancel the booking and post a new shift instead.';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- `accept_offer` sets `status = 'filled'` immediately after inserting the
+-- booking, so this trigger fires with a confirmed booking already present. That
+-- is allowed and must stay allowed: `filled` is not `open`, and no other frozen
+-- column moves, so it leaves through the fast path above. `closeShift` is the
+-- same shape. If either ever starts changing a frozen column, this refuses it —
+-- which is the intent, not a regression.
+drop trigger if exists trg_shift_terms_locked on public.shifts;
+create trigger trg_shift_terms_locked
+  before update on public.shifts
+  for each row execute function public.shift_terms_locked();
 
 -- Expo push tokens. A user can have one row per device.
 create table if not exists public.push_tokens (
