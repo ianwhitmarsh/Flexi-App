@@ -125,16 +125,6 @@ export async function asUser(db, userId, fn) {
   }
 }
 
-/** Like `asUser`, but expects the block to be refused. Returns the message. */
-export async function refusedAsUser(db, userId, fn) {
-  try {
-    await asUser(db, userId, fn);
-  } catch (e) {
-    return e.message;
-  }
-  return null;
-}
-
 /** Call `accept_offer` as `worker`. Errors come back as `status: 'error'`. */
 export async function accept(db, worker, offerId) {
   await signIn(db, worker);

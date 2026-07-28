@@ -16,6 +16,26 @@ import { before, describe, it } from 'node:test';
 
 import { asUser, freshDb, seed, offerShift, accept, futureJuly } from './harness.mjs';
 
+/**
+ * A rival business: a real employer account with no connection to the shift.
+ *
+ * Its absence was a genuine hole. Every negative assertion about `timesheets`
+ * and `shift_payments` used to be made from a *worker's* session, so the
+ * employer branch of both `... business read` policies — the clause that scopes
+ * them to the owning business — had nothing watching it. Scoping it to any
+ * business account instead of the owner passed the whole suite.
+ */
+async function rivalEmployer(db) {
+  const id = '00000000-0000-4000-8000-0000000000b1';
+  await db.exec(`
+    insert into auth.users (id) values ('${id}');
+    insert into public.profiles (id, email, role) values ('${id}', 'rival@example.com', 'business');
+    insert into public.businesses (id, company_name, category, city, about, contact_name)
+      values ('${id}', 'Rival Coffee', 'Restaurant', 'Dallas', '', 'Pat');
+  `);
+  return id;
+}
+
 /** A second worker, so "somebody else's row" is a real row and not an absence. */
 async function otherWorker(db, n = 9) {
   const id = `00000000-0000-4000-8000-0000000000f${n}`;
@@ -88,6 +108,11 @@ describe('a worker cannot read another worker', () => {
     // `auth.role() = 'authenticated'` on purpose — an employer has to be able
     // to read a candidate — so a test that only checked denials would call this
     // a leak when it is the design.
+    //
+    // That openness includes `resume_url`, which is a reference to a private
+    // object. Whether that is right is BIG-91; this test records what the
+    // schema does today, not a decision that it should. If BIG-91 tightens it,
+    // this test changes with it.
     const r = await asUser(db, worker, () =>
       db.query(`select id from public.worker_profiles order by id`),
     );
@@ -109,12 +134,14 @@ describe('money and hours are private to the two parties', () => {
   let employer;
   let worker;
   let other;
+  let rival;
   let shift;
 
   before(async () => {
     db = await freshDb();
     ({ employer, worker } = await seed(db));
     other = await otherWorker(db, 8);
+    rival = await rivalEmployer(db);
     const day = await futureJuly(db);
     const offered = await offerShift(db, {
       employer, worker, date: day, start: '09:00', end: '17:00', timezone: 'America/Chicago',
@@ -154,6 +181,21 @@ describe('money and hours are private to the two parties', () => {
 
   it('hides the payment from an unrelated worker', async () => {
     const r = await asUser(db, other, () => db.query(`select id from public.shift_payments`));
+    assert.deepEqual(r.rows, []);
+  });
+
+  it('hides the timesheet from a business that does not own the shift', async () => {
+    // The employer half of AC-3, and the half that had no test. `timesheets
+    // business read` joins through `shifts.business_id = auth.uid()`; without
+    // this, scoping it to any business account rather than the owner passes.
+    const r = await asUser(db, rival, () => db.query(`select id from public.timesheets`));
+    assert.deepEqual(r.rows, []);
+  });
+
+  it('hides the payment from a business that does not own the shift', async () => {
+    // The one that matters most: `bill_rate_cents` and `wage_rate_cents` are
+    // what another business would pay to see.
+    const r = await asUser(db, rival, () => db.query(`select id from public.shift_payments`));
     assert.deepEqual(r.rows, []);
   });
 
